@@ -1,0 +1,3 @@
+# Keep shell/python LF so verify.sh + dry_run.py run on POSIX after a Windows clone (autocrlf=true).
+*.sh  text eol=lf
+*.py  text eol=lf

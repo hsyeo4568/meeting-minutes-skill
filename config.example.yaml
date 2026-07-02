@@ -1,0 +1,54 @@
+# meeting-minutes — config template
+# Copy to config.yaml and fill. config.yaml is gitignored (personal/private data).
+# The engine (references/engine/, SKILL.md) reads these values; it contains ZERO proper nouns.
+# Every {{placeholder}} the engine emits MUST have a key here. See references/engine/CONTRACT.md.
+
+identity:
+  me: "<YOUR NAME>"              # {{me}} — the "I"/"나" speaker label in minutes
+  org: "<YOUR ORG>"             # {{org}} — your organization short name
+
+project:
+  name: "<PROJECT DISPLAY NAME>" # {{project_name}}
+  slug: "<project-slug>"         # {{project_slug}} — used in vault filenames/paths
+  profile: "profiles/_template"  # path to active profile dir; null = skip domain/contact cross-checks
+
+paths:
+  vault: "<ABS PATH TO CANONICAL STORE ROOT>"       # {{vault_path}} — notes vault / docs folder / wiki root
+  work_folder: "<ABS PATH TO MEETING SOURCE DIR>"   # {{work_folder}} — raw recordings/xlsx live here
+  vault_meetings_subpath: "projects/<slug>/meetings" # {{vault_meetings_subpath}}
+
+# Category x deliverable matrix. THIS IS CONFIG — every org meets differently.
+# Keys are category ids; values are deliverable flags. gmail: true|false|optional.
+categories:
+  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true }
+  regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true }
+  workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true }
+
+channels:
+  slack_workspace_id: "<TXXXXXXXX>"  # {{slack_workspace_id}}
+  slack_channel_id: "<CXXXXXXXX>"    # {{slack_channel_id}} — minutes channel
+  slack_user_id: "<UXXXXXXXX>"       # {{slack_user_id}} — your DM target for review canvases
+  slack_url_base: "https://<workspace>.slack.com"  # {{slack_url_base}}
+  slack_bot_dm_id: ""                # {{slack_bot_dm_id}} — optional, bot DM channel
+
+# Tool availability. auto = detect at runtime; on/off = force. Missing tool -> file fallback (never fail).
+tools:
+  slack_mcp: auto
+  gmail_mcp: auto
+  qmd: auto
+  ontology: auto
+
+locale:
+  # NOTE: 산출물 헤더/보일러플레이트는 현재 한국어 고정(출력 i18n 미지원). 아래 값은 본문 *문체* 지침용.
+  language: ko                       # {{language}}
+  business_style: korean-gaejosik    # {{business_style}} — korean-gaejosik | plain | english
+
+# Vault frontmatter schema (field names the engine writes). Adjust to your vault contract.
+vault_frontmatter:
+  required: [date, type, category, chair, attendees_present, attendees_absent,
+             attachments, recording, slack_canvas_id, issues_discussed,
+             decisions, action_items, description, projects, tags]
+
+# Ontology IRI namespace (only used if tools.ontology is available)
+ontology:
+  namespace: "<https://your.vault/ontology#>"

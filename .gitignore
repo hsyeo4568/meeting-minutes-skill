@@ -1,0 +1,6 @@
+# Personal/private — never commit (this skill dir is pushed to a public GitHub remote).
+config.yaml
+profiles/v2x-herit/
+
+# Backups / scratch
+*.bak
