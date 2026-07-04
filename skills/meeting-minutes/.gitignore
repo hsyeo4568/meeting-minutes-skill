@@ -1,6 +1,9 @@
 # Personal/private — never commit (this skill dir is pushed to a public GitHub remote).
 config.yaml
-profiles/v2x-herit/
+# Any profile except the shipped examples is private by default.
+profiles/*
+!profiles/_template/
+!profiles/example-acme/
 
 # Backups / scratch
 *.bak

@@ -27,6 +27,7 @@
 - 각 안건을 원 회의(source meeting)에 연결 → "지난주 X → 이번주 Y" 추적.
 - writing-principles.md 적용 (개조식·화살표·세그먼트·담당자·실데이터).
 - 식별자(인물/장비/고객 등)는 source-of-truth 시트와 교차검증. 시트 없으면 표기 그대로 두고 플래그.
+- **인라인 주석 마커** (사용자가 녹취에 남긴 사후 코멘트): profile 라우팅 규칙으로 해당 섹션 승격. 마커 문법·키워드 매핑은 **profile 소관**(엔진 순수성 — 특정 문법 하드코딩 금지). 미분류 마커는 초안에 노출(silent drop 금지), 외부 산출물엔 raw 마커 미포함.
 
 ## 4. Per-category deliverables
 
