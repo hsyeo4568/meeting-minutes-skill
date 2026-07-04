@@ -10,7 +10,7 @@
 
 | 스킬 | 역할 |
 |------|------|
-| [`skills/stt-transcript-fix/`](skills/stt-transcript-fix/) | STT 녹취 오타·문맥 교정 (원본 fidelity 유지) + 인사이트/to-do `(*...)` 자동 마킹 |
+| [`skills/stt-transcript-fix/`](skills/stt-transcript-fix/) | STT 녹취 오타·문맥 교정 (원본 fidelity 유지) + 인사이트/to-do `(*...)` 자동 마킹. **meeting-minutes profile의 용어사전과 함께 쓸 때 최대 효과** — 단독 설치 시 사용자 괄호교정·명백한 문맥 교정만 동작 |
 | [`skills/meeting-minutes/`](skills/meeting-minutes/) | 회의록 자동화 엔진 — 회의 종류별 산출물, 이전 회의 연계, 조직별 Action Items |
 
 두 스킬은 **profile**(우리 팀의 용어사전·인명·회의 구조)을 공유한다. 엔진은 범용, 팀 데이터는 profile에만.
@@ -32,12 +32,20 @@
 ### 경로 B: Claude Code 사용자 (스킬 설치)
 
 1. 이 저장소를 받아 스킬 폴더로 복사:
+
+   macOS/Linux/Git Bash:
    ```bash
    git clone https://github.com/hsyeo4568/meeting-minutes-skill.git
    cp -r meeting-minutes-skill/skills/meeting-minutes ~/.claude/skills/
    cp -r meeting-minutes-skill/skills/stt-transcript-fix ~/.claude/skills/
    ```
-   (Windows PowerShell: `Copy-Item -Recurse` 동일 구조. 개인 스킬 폴더 = `~/.claude/skills/`)
+   Windows PowerShell (개인 스킬 폴더 = `C:\Users\<내계정>\.claude\skills\`):
+   ```powershell
+   git clone https://github.com/hsyeo4568/meeting-minutes-skill.git
+   New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
+   Copy-Item -Recurse meeting-minutes-skill\skills\meeting-minutes "$HOME\.claude\skills\"
+   Copy-Item -Recurse meeting-minutes-skill\skills\stt-transcript-fix "$HOME\.claude\skills\"
+   ```
 2. Claude Code에서 회의 녹취를 주고 "회의록 만들어줘"라고 하면 —
    **config가 없으면 온보딩 인터뷰가 자동 시작**된다 (내 이름·조직·회의 종류·용어를 묻고 profile 생성). 상세: [`skills/meeting-minutes/SETUP.md`](skills/meeting-minutes/SETUP.md)
 3. 녹취 교정: "이 녹취 파일 오타 교정해줘" → stt-transcript-fix가 처리.

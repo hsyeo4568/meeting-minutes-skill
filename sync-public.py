@@ -34,6 +34,7 @@ EXCLUDE = [
     "*.bak",
     "__pycache__*",
     "verify-denylist.local",  # private org/people terms for verify.sh
+    "fixtures/*",  # local regression fixtures (may contain real transcripts/names)
 ]
 INCLUDE_PROFILES = ["profiles/_template", "profiles/example-acme"]  # ...except shipped examples
 
@@ -97,6 +98,8 @@ def main() -> int:
         pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--commit", metavar="MSG", help="commit after gates pass")
+    ap.add_argument("--prune", action="store_true",
+                    help="delete repo files reported stale (in repo, gone from source)")
     args = ap.parse_args()
 
     if not CONFIG.exists():
@@ -146,12 +149,16 @@ def main() -> int:
             if not dst.exists() or dst.read_bytes() != path.read_bytes():
                 shutil.copy2(path, dst)
                 copied += 1
-        # stale detection (present in repo, gone from source) — warn only
+        # stale detection (present in repo, gone from source) — warn, or delete with --prune
         for p in dest_root.rglob("*"):
             if p.is_file():
                 rel = p.relative_to(dest_root).as_posix()
                 if not excluded(rel) and rel not in {r for r, _ in files}:
-                    print(f"  WARN stale in repo (not in source): {dest_root.name}/{rel}")
+                    if args.prune:
+                        p.unlink()
+                        print(f"  PRUNED stale: {dest_root.name}/{rel}")
+                    else:
+                        print(f"  WARN stale in repo (not in source): {dest_root.name}/{rel} (--prune to delete)")
     print(f"== Copy: {copied} file(s) updated ==")
 
     # Paste-in prompts must be fully resolved — an unsubstituted {{placeholder}}

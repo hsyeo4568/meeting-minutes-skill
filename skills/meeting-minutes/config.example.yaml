@@ -44,6 +44,8 @@ locale:
   business_style: korean-gaejosik    # {{business_style}} — korean-gaejosik | plain | english
 
 # Vault frontmatter schema (field names the engine writes). Adjust to your vault contract.
+# NOTE: slack_canvas_id is only meaningful if you use Slack canvases — remove it (and any
+# other field you don't track) from the list; the engine writes only what is listed here.
 vault_frontmatter:
   required: [date, type, category, chair, attendees_present, attendees_absent,
              attachments, recording, slack_canvas_id, issues_discussed,
