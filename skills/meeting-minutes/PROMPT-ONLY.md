@@ -33,12 +33,12 @@
 
 ## 2. 문체 — locale 조건부 (`korean-gaejosik`)
 
-- `korean-gaejosik = korean-gaejosik`일 때(개조식 전용):
+- 문체가 `korean-gaejosik`(개조식 전용)일 때:
   - 안건당 3~7줄. 화살표(→)·목록·명사 종결.
   - 번역체 풀어쓰기 금지. 인용은 핵심 발언 1줄만.
   - 표(table) 금지 — Action Items·데이터·비교 전부 목록/들여쓰기로.
   - 소항목 헤더에 [대괄호] 라벨 금지.
-- 다른 `korean-gaejosik`(예 narrative/bulleted-en)일 때는 해당 locale 관례를 따름 — 위 제약은 적용 안 함.
+- 다른 문체(예 narrative/bulleted-en)일 때는 해당 locale 관례를 따름 — 위 제약은 적용 안 함.
 - 공통 원칙(locale 무관): 한 안건 = 한 결론, 불필요한 수식어 제거, 사실 우선.
 
 ## 3. 세그먼트 용어 (`「세그먼트(예: B2B/B2C)」`)
@@ -243,6 +243,7 @@ M/D 진행된 회의 내용 공유드립니다.
 ```
 
 표 금지, 체크리스트로 작성. 수신/참조는 profile contacts 매핑으로 채움.
+contacts에 없는 참석자는 수신란에 `[미확인: 이름]` placeholder로 명시 출력 — 임의 추측·조용한 누락 금지 (사용자가 초안 검토에서 채움).
 
 ---
 

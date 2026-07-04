@@ -15,12 +15,12 @@
 
 ## 2. 문체 — locale 조건부 (`{{business_style}}`)
 
-- `{{business_style}} = korean-gaejosik`일 때(개조식 전용):
+- 문체가 `korean-gaejosik`(개조식 전용)일 때:
   - 안건당 3~7줄. 화살표(→)·목록·명사 종결.
   - 번역체 풀어쓰기 금지. 인용은 핵심 발언 1줄만.
   - 표(table) 금지 — Action Items·데이터·비교 전부 목록/들여쓰기로.
   - 소항목 헤더에 [대괄호] 라벨 금지.
-- 다른 `{{business_style}}`(예 narrative/bulleted-en)일 때는 해당 locale 관례를 따름 — 위 제약은 적용 안 함.
+- 다른 문체(예 narrative/bulleted-en)일 때는 해당 locale 관례를 따름 — 위 제약은 적용 안 함.
 - 공통 원칙(locale 무관): 한 안건 = 한 결론, 불필요한 수식어 제거, 사실 우선.
 
 ## 3. 세그먼트 용어 (`{{segments}}`)
