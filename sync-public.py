@@ -106,6 +106,20 @@ def main() -> int:
     sources = cfg["sources"]
     leak_pat = build_leak_pat(cfg)
 
+    # Regenerate the free-tier prompt from engine sources BEFORE syncing, so
+    # PROMPT-ONLY.md can never drift from writing-principles/output-templates.
+    print("== Regen: PROMPT-ONLY (build_prompt.py) ==")
+    mm_src = Path(sources.get("skills/meeting-minutes", ""))
+    builder = mm_src / "scripts" / "build_prompt.py"
+    if builder.exists():
+        r = subprocess.run([sys.executable, str(builder)], capture_output=True, text=True)
+        print("  " + ((r.stdout or r.stderr or "").strip() or "(no output)"))
+        if r.returncode != 0:
+            print("  BLOCK — PROMPT-ONLY regeneration failed")
+            return 1
+    else:
+        print("  SKIP — build_prompt.py not found")
+
     all_hits, plans = [], []
     for dest_rel, src in sources.items():
         src_root = Path(src)
@@ -139,6 +153,21 @@ def main() -> int:
                 if not excluded(rel) and rel not in {r for r, _ in files}:
                     print(f"  WARN stale in repo (not in source): {dest_root.name}/{rel}")
     print(f"== Copy: {copied} file(s) updated ==")
+
+    # Paste-in prompts must be fully resolved — an unsubstituted {{placeholder}}
+    # means build_prompt regression (free-tier users get a broken prompt).
+    print("== Gate: PROMPT-ONLY placeholder residue ==")
+    residue = []
+    for p in REPO.glob("skills/*/PROMPT-ONLY.md"):
+        for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if "{{" in line:
+                residue.append(f"{p.relative_to(REPO).as_posix()}:{i}: {line.strip()[:70]}")
+    if residue:
+        print("  BLOCK — unresolved placeholders:")
+        for h in residue:
+            print(f"    {h}")
+        return 1
+    print("  OK")
 
     print("== Gate: verify.sh ==")
     vsh = REPO / "skills/meeting-minutes/verify.sh"
