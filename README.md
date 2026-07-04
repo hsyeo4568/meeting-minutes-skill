@@ -81,6 +81,9 @@ skills/meeting-minutes/
 skills/stt-transcript-fix/
 ├── SKILL.md              # 교정 엔진 (Tier-A/B, 괄호 4종, 자동 마킹)
 └── PROMPT-ONLY.md        # 무료판 복붙 프롬프트
+
+sync-public.py            # (메인테이너용) 로컬 작업본 → 이 repo 동기화 + 누출 게이트.
+                          # 경로·비공개 denylist는 sync-config.local.json(gitignored)에.
 ```
 
 ## 라이선스 / 문의

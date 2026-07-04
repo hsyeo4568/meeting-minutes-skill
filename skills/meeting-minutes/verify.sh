@@ -18,9 +18,10 @@ if [ "${#FILES[@]}" -lt 2 ]; then echo "  FATAL: found ${#FILES[@]} files to sca
 
 echo "== Gate #1: engine purity =="
 # Denylist: proper nouns + structural secrets that must never appear in engine content.
-# Customize the leading terms for YOUR org/people/clients — the trailing regexes catch
-# absolute paths and ID/VIN-shaped strings generically. Example terms shown; replace them.
+# Generic base below; put YOUR org/people/client terms (private!) in verify-denylist.local
+# (gitignored, one extended-regex alternation on a single line) — it is appended if present.
 PAT='YourOrg|YourClient|YourName|your-workspace|C:/Users|/Users/|[TCUD]0[A-Z0-9]{8,}|[0-9]{2}[가-힣][0-9]{4}|VIN [A-Z0-9]{11,}'
+if [ -f verify-denylist.local ]; then PAT="$PAT|$(head -n1 verify-denylist.local)"; fi
 hits=0
 for f in "${FILES[@]}"; do
   if grep -nEi "$PAT" "$f" >/tmp/mm_purity 2>/dev/null; then
