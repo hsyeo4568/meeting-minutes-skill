@@ -15,7 +15,7 @@ fail = 0
 # 1. config parses
 cfg_path = ROOT / "config.yaml"
 if not cfg_path.exists():
-    print("FAIL: config.yaml missing"); sys.exit(1)
+    print("FAIL: config.yaml missing -> cp config.example.yaml config.yaml 후 값 채우기"); sys.exit(1)
 cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
 print(f"== config.yaml parsed OK — project={cfg['project']['name']} me={cfg['identity']['me']}")
 

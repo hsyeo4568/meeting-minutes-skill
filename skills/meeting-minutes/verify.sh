@@ -30,6 +30,8 @@ for f in "${FILES[@]}"; do
 done
 if [ "$hits" -eq 0 ]; then echo "  OK — engine clean"; else echo "  FAIL — $hits file(s) impure"; fail=1; fi
 
+echo "== Gate #2: degradation — manual SKILL.md read-through (not scripted, skipped) =="
+
 echo "== Gate #3: placeholder <-> config =="
 miss=0
 toks=$(grep -rhoE '\{\{[a-z_]+\}\}' "$ENGINE" SKILL.md 2>/dev/null | sed -E 's/\{\{|\}\}//g' | sort -u)
