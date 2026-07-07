@@ -1,2 +1,9 @@
 # Local machine paths for sync-public.py — never commit.
 sync-config.local.json
+
+# Stray build/diff artifacts that must never reach the public repo.
+# (git add -A in sync-public.py would otherwise stage anything here.)
+*mm_diff*
+*.tmp
+*.bak
+*.local.json

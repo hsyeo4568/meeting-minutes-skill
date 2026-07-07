@@ -187,7 +187,11 @@ def main() -> int:
     except FileNotFoundError:
         print("  SKIP — bash not available (run verify.sh manually before push)")
 
-    subprocess.run(["git", "add", "-A"], cwd=REPO, check=True)
+    # Explicit paths only — NOT `git add -A`. Blind staging would sweep any
+    # stray file in the repo root (temp diffs, editor backups) into a public
+    # commit, bypassing the pre-copy leak scan (which only sees source files).
+    subprocess.run(["git", "add", "skills", "README.md", "sync-public.py", ".gitignore"],
+                   cwd=REPO, check=True)
     st = subprocess.run(["git", "status", "--short"], cwd=REPO, capture_output=True, text=True).stdout
     print("== Staged ==\n" + (st or "  (no changes)"))
 
