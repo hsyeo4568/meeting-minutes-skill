@@ -7,3 +7,4 @@ sync-config.local.json
 *.tmp
 *.bak
 *.local.json
+__pycache__/
