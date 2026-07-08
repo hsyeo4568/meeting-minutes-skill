@@ -32,6 +32,8 @@ EXCLUDE = [
     "config.yaml",
     "profiles/*",  # all profiles private by default...
     "*.bak",
+    "*.backup.*",  # user backup convention: <file>.backup.<date>
+    "*.orig",
     "__pycache__*",
     "verify-denylist.local",  # private org/people terms for verify.sh
     "fixtures/*",  # local regression fixtures (may contain real transcripts/names)
@@ -48,7 +50,14 @@ LEAK_BASE = (
 
 
 def build_leak_pat(cfg: dict) -> re.Pattern:
-    parts = [LEAK_BASE] + list(cfg.get("denylist", []))
+    denylist = list(cfg.get("denylist", []))
+    if not denylist:
+        # An empty denylist silently disables the org/people leak gate — refuse to publish.
+        raise SystemExit(
+            "FATAL: 'denylist' missing or empty in sync-config.local.json — "
+            "org/people leak gate would be disabled. Fix the config before publishing."
+        )
+    parts = [LEAK_BASE] + denylist
     return re.compile("|".join(parts), re.IGNORECASE)
 # Files that legitimately mention forbidden tokens (they document the ban).
 LEAK_EXEMPT = {"references/engine/CONTRACT.md", "verify.sh"}
