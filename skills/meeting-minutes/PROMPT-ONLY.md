@@ -23,109 +23,107 @@
 
 ## A. 작성 규칙
 
-# 회의록 작성 원칙 (generic engine)
+# Meeting Minutes Writing Principles (generic engine)
 
-> 회의록 본문을 만들 때 적용하는 작성 방법론. 고유명사·경로·구체값은 전부 placeholder/중립 예시.
-> 스타일 규칙은 locale 조건부(`korean-gaejosik`)로 분기 — 특정 문화권 문체를 보편 규칙으로 강제하지 않음.
-> **여기는 회의 종류와 무관한 보편 작성 위생만.** 형태(섹션 순서·카테고리·Action 그룹·제목 규칙·타입별 규칙)는
-> **profile `structure.md`가 정함** — 없으면 녹취서 추론 후 확인(`ONBOARDING.md`/`PROMPT-ONLY.md`). 아래 §3·§5·§6·§9는
-> *운영회의 예시* 위주라 회의 타입에 안 맞으면 structure.md를 따른다.
+> Methodology applied when composing meeting minutes body content. All proper nouns, paths, and concrete values use placeholders or neutral examples.
+> Style rules branch on a locale condition (`korean-gaejosik`) — culture-specific writing conventions are not imposed as universal rules.
+> **This file covers only universal writing hygiene, independent of meeting type.** Form (section order, categories, Action grouping, title rules, type-specific rules) is determined by **profile `structure.md`** — if absent, infer structure from transcript and confirm with user (`ONBOARDING.md`/`PROMPT-ONLY.md`). §3, §5, §6, and §9 below are weighted toward *operational meeting examples*; if they don't fit the meeting type, follow structure.md instead.
 
-## 1. 맥락 연계 (context-link)
+## 1. Context Linking (context-link)
 
-- 작성 전 직전 1~2주 회의록 + 전일/전주 회의를 먼저 읽음. **Read 범위·깊이는 profile이 좁힐 수 있음(profile 우선)** — 예: 직전 1건만 전문, 나머지는 연계·Action 섹션만.
-- 각 안건이 어느 회의의 미해결 이슈 후속인지 명시.
-- 상단에 `## 이전 회의(날짜) 연계 맥락` 섹션, 또는 안건별 인용블록(`> 이전 회의 #N 후속`).
-- 후속이 아닌 신규 안건은 명시적으로 "신규"로 표기 — 독자가 연속성 여부를 추적할 수 있게.
+- Before drafting, read the 1–2 prior weeks of minutes + the previous day/week's meeting. **Read scope and depth can be narrowed by the profile (profile takes precedence)** — e.g. read the immediately preceding entry in full; others in link/Action sections only.
+- For each agenda item, explicitly state which prior meeting's unresolved issue it follows up on.
+- Add a `## Prior Meeting (date) Context` section at the top, or per-item quotation blocks (`> Prior meeting #N follow-up`).
+- Items that are genuinely new — not follow-ups — must be explicitly labeled "신규" (new) so readers can track continuity.
 
-## 2. 문체 — locale 조건부 (`korean-gaejosik`)
+## 2. Writing Style — locale-conditional (`korean-gaejosik`)
 
-- 문체가 `korean-gaejosik`(개조식 전용)일 때:
-  - 안건당 3~7줄. 화살표(→)·목록·명사 종결.
-  - 번역체 풀어쓰기 금지. 인용은 핵심 발언 1줄만(profile이 인용 자체를 금지하면 profile 우선).
-  - 표(table) 금지 — Action Items·데이터·비교 전부 목록/들여쓰기로.
-  - 소항목 헤더에 [대괄호] 라벨 금지.
-  - **⚠️ 자연스러움 > 압축 (과압축 가드).** 개조식은 축약이지 조어 발명이 아님. 명사화가 **비표준·어색한 신조어**를 낳으면 자연스러운 서술로 되돌린다. 실제 교정 사례: 곤란→"예측 어려움", 부자연→"자연스럽지 않음", 유리론→"유리할 것으로 판단", "명확 진술"→"명확히 주장", "당장 착수 X"→"대기". 판정 기준: **소리 내어 읽어 어색하면 압축 실패** — 사전에 없는 억지 2음절 한자어(부자연/곤란화 류)·기호 종결(X·△) 금지.
-  - **맥락 과잉 삭제 금지.** 문장이 짧아도 결론을 이해시키는 데 필요한 전제(예: "V2G만 단독 운용중", "모빌리티 needs")는 남긴다. 줄이려다 인과가 끊기면 안 됨 — §1 맥락 연계와 충돌하면 맥락 우선.
-  - **입장·완곡 보존.** 제안·희망은 단정으로 압축 금지("~하라고 전달" ✗ → "~하지 않으면 좋겠다는 의견" ✓). 발언의 확정도(합의/제안/희망)를 압축 과정에서 격상시키지 말 것.
-- 다른 문체(예 narrative/bulleted-en)일 때는 해당 locale 관례를 따름 — 위 제약은 적용 안 함.
-- 공통 원칙(locale 무관): 한 안건 = 한 결론, 불필요한 수식어 제거, 사실 우선. **단, "불필요한 수식어 제거"가 자연스러운 한국어까지 깎아내면 과압축 — 가독성 우선.**
+- When style is `korean-gaejosik` (bullet-style Korean):
+  - 3–7 lines per agenda item. Use arrows (→), lists, and noun-ending sentences (명사 종결).
+  - No loose translated prose (번역체 풀어쓰기 금지). Quotations: one line of key statement only (if the profile bans quotations outright, profile wins).
+  - No tables — Action Items, data, and comparisons all use lists/indentation.
+  - No [bracket] labels on sub-item headers.
+  - **⚠️ Naturalness > compression (over-compression guard).** 개조식 means abbreviation, not coining new words. If noun-condensation produces **non-standard or awkward neologisms**, revert to natural phrasing. Real correction examples: 곤란→"예측 어려움", 부자연→"자연스럽지 않음", 유리론→"유리할 것으로 판단", "명확 진술"→"명확히 주장", "당장 착수 X"→"대기". Test: **if it sounds unnatural when read aloud, compression has failed** — invented two-syllable Sino-Korean words (e.g. 부자연, 곤란화) and symbol endings (X, △) are prohibited.
+  - **Do not over-delete context.** Even short sentences must retain the premises needed for the conclusion to make sense (e.g. "V2G만 단독 운용중", "모빌리티 needs"). Cutting for brevity must not sever cause-and-effect — if it conflicts with §1 context linking, context linking wins.
+  - **Preserve stance and hedging.** Proposals and wishes must not be compressed into assertions ("~하라고 전달" ✗ → "~하지 않으면 좋겠다는 의견" ✓). Do not upgrade a statement's certainty level (agreed/proposed/wished) during compression.
+- For other styles (e.g. narrative/bulleted-en): follow the conventions of that locale — the above constraints do not apply.
+- Common principles (locale-independent): one conclusion per agenda item, remove unnecessary modifiers, facts first. **However, if "remove unnecessary modifiers" strips naturally flowing Korean, that is over-compression — readability wins.**
 
-## 3. 세그먼트 용어 (`「세그먼트(예: B2B/B2C)」`)
+## 3. Segment Terminology (`「세그먼트(예: B2B/B2C)」`)
 
-- 개별 사이트/지점/고객명 대신 비즈니스 세그먼트(`「세그먼트(예: B2B/B2C)」`, 예 Org A 내 B2B/B2C)로 묶어 표기.
-- 청중이 세그먼트 단위로 사고 → 개별 식별자 나열보다 집계가 가독성 우위.
-- 단, 특정 식별자가 액션의 대상일 때(아래 5번)는 예외.
+- Group by business segment (`「세그먼트(예: B2B/B2C)」`, e.g. B2B/B2C within Org A) instead of listing individual site/location/customer names.
+- Readers think in segment units → aggregated grouping is more readable than enumerating individual identifiers.
+- Exception: when a specific identifier is the target of an action (see §5 below).
 
-## 4. 담당자 명시
+## 4. Assignee Attribution
 
-- 주체가 있는 안건 제목에 괄호 담당 표기: `(이름 직급)` 형태.
-- Action Items는 `@담당자 직급` 멘션으로 책임 소재 고정.
-- 담당 미정이면 `@TBD`로 두지 말고 "담당 지정 필요"를 액션으로 승격.
+- For agenda items with a responsible party, include parenthetical attribution in the title: `(이름 직급)` format.
+- Action Items: fix accountability with `@담당자 직급` mentions.
+- If an assignee is undecided, do not leave `@TBD` — elevate "assignee needs to be designated" as an action item.
 
-## 5. 크로스조직 요청엔 운영 실데이터
+## 5. Cross-org Requests Require Operational Data
 
-- 타 조직(`「참여 조직들」` 중 하나)에 로그/데이터를 요청할 때는 식별자까지 구체적으로.
-  - 예: 대상 식별자(vehicle X / device Y), 타임스탬프(`2026-01-05 14:03`), 관측된 증상, 우리 측 대응.
-- 표가 아닌 들여쓰기 리스트로 — 회의록 그 자체가 요청 근거 문서가 됨.
+- When requesting logs/data from another organization (one of `「참여 조직들」`), specify identifiers concretely:
+  - Target identifier (vehicle X / device Y), timestamp (`2026-01-05 14:03`), observed symptom, our-side response.
+- Use indented lists, not tables — the minutes themselves become the request documentation.
 
-## 6. 안건 제목 = 증상 기반 · 정량 마커
+## 6. Agenda Titles = Symptom-Based + Quantitative Markers
 
-- 고객/사용자 대면 이슈는 증상 표현으로 제목화(원인 추정 아닌 관측 사실).
-- 정량 현상은 제목에 수치 마커 포함(예 "+50% / 6분").
-- 추상적 카테고리명("기타 논의") 지양 — 제목만 봐도 내용이 떠오르게.
+- For customer/user-facing issues, title them by symptom (observed fact, not inferred cause).
+- Quantitative phenomena: include a numeric marker in the title (e.g. "+50% / 6분").
+- Avoid abstract category names ("기타 논의") — the title alone should evoke the content.
 
-## 7. 기계 냄새(AI-ism) 제거
+## 7. Remove AI-isms (machine smell)
 
-- "핵심 발견 1/2/3", "주요 시사점", "핵심 메시지" 류 정형 헤더 금지.
-- 인사이트는 자연스러운 번호 섹션 본문에 녹여 서술.
-- 동일 접속어 반복·과잉 균형 표현·불필요한 메타문장 제거.
+- Ban formulaic headers like "핵심 발견 1/2/3", "주요 시사점", "핵심 메시지".
+- Embed insights naturally within numbered section body text.
+- Eliminate repeated connectives, excessive balance expressions, and unnecessary meta-sentences.
 
-## 8. 식별자 교차검증 (cross-check)
+## 8. Identifier Cross-Verification (cross-check)
 
-- 녹취·STT 속 식별자(vehicle/device 번호)는 오인식이 잦음.
-- 작업 폴더의 source-of-truth 시트(예 `issues_260105.xlsx`의 목록 탭)와 대조 후 확정.
-- 시트 조회 전 시트명·컬럼명을 먼저 출력해 공백/대소문자 검증 후 본 조회(스키마 우선).
-- `profile=null`이면 cross-check 생략 — placeholder 유지 또는 사용자에게 확인 요청.
+- Identifiers (vehicle/device numbers) in transcripts and STT are frequently misrecognized.
+- Verify against the source-of-truth sheet in the working folder (e.g. the list tab of `issues_260105.xlsx`) before finalizing.
+- Before querying the sheet, print sheet names and column names first to verify whitespace/case — schema first.
+- If `profile=null`: skip cross-check — keep placeholders or ask the user to confirm.
 
-## 9. 정기회의 한정 — 리포트 중복 배제
+## 9. Regular Meetings Only — Avoid Duplicating Report Content
 
-- 주간 리포트와 함께 진행되는 회의는, 리포트에 이미 있는 수치/표를 회의록에 복제하지 않음.
-- 그 수치를 보고 내린 해석·판단·결정·후속 액션만 기록 — 회의록은 "리포트에 없는 것"을 담음.
+- For meetings that accompany a weekly report: do not reproduce figures/tables already in the report.
+- Record only the interpretations, judgments, decisions, and follow-up actions derived from those figures — minutes capture "what is not in the report."
 
-## 10. 호칭 약어
+## 10. Title/Name Abbreviations
 
-- 본문 반복 등장 시 약어로 압축.
-- 단, Action Items 섹션 헤더는 정식 명칭(조직 약어 풀어쓰기) 유지 — 외부 공유 시 모호성 방지.
+- Compress repeated long names to abbreviations after first use.
+- Exception: Action Items section headers use full official names (expand org abbreviations) to prevent ambiguity when shared externally.
 
-## 섹션 순서·Action 그룹 → profile structure.md
+## Section Order · Action Grouping → profile structure.md
 
-- **고정 아님.** 섹션 순서·Action Items 그룹 방식(조직별/담당자별/없음)·카테고리는 profile `structure.md`가 정한다.
-- structure.md 없으면(profile=null) 녹취 기반으로 구조를 추론해 사용자에게 제안·확인.
-- 보편 규칙만: Action Items는 본문에 흩지 말고 한 곳에 모은다(그룹 기준은 structure.md). 향후 일정은 별도 섹션.
+- **Not fixed.** Section order, Action Items grouping method (by org / by assignee / flat), and categories are determined by profile `structure.md`.
+- If structure.md is absent (profile=null): infer structure from transcript and propose to user for confirmation.
+- Universal rule only: Action Items must be collected in one place, not scattered through the body (grouping criterion is per structure.md). Future schedule items go in a separate section.
 
-## 매체별 직책 표기
+## Title/Role Labeling by Medium
 
-- 공유용 Canvas / 공유 MD: 이름만(직책 생략) — **참석자 나열·본문 서술 한정.** 안건 담당 괄호·Action 멘션(§4)은 직급 포함이 기본, profile이 달리 정하면 profile 우선.
-- 공식 docx: 이름 + 직책.
-- vault frontmatter: 이름 wikilink 형태.
+- Shared Canvas / shared MD: name only (omit title) — **applies to attendee lists and body prose only.** Agenda-item assignee parentheticals and Action mentions (§4) include rank by default; if the profile specifies otherwise, profile wins.
+- Official docx: name + title.
+- Vault frontmatter: name as wikilink.
 
-## 시간 · 날짜
+## Time · Date
 
-- 절대 시점만(MM/DD, HH시). "금일/어제/방금" 등 상대 표현 금지.
-- 녹음 파일명 시각 ≠ 회의 시작 시각 — 혼동 금지.
-- STT 날짜 오인식 cross-check 후 확정.
+- Absolute timestamps only (MM/DD, HH시). Relative expressions like "금일/어제/방금" are prohibited.
+- Recording filename timestamp ≠ meeting start time — do not conflate.
+- Cross-check STT date misrecognitions before finalizing.
 
-## 표현 순화
+## Expression Refinement
 
-- 번역체 → 운영 구어체(독자가 한 번에 이해되면 구어체 OK).
-- 발언자 인용 라벨 삭제, 팩트만 남김.
-- 내부 작업 메모(TBD 등) 회의록 본문에서 제외.
+- Translated prose → operational spoken register (if a reader understands it in one pass, colloquial is fine).
+- Remove speaker-attribution labels; keep facts only.
+- Exclude internal work notes (TBD etc.) from the minutes body.
 
-## 강조 (인라인 코드)
+## Emphasis (inline code)
 
-- 날짜·주차·기한·시스템 필드·API 명 → 백틱 인라인 코드.
-- 제도/기관 고유명사 → 백틱 제거(코드 아님).
+- Dates, week numbers, deadlines, system field names, API names → backtick inline code.
+- Proper nouns for institutions/regulations → remove backticks (not code).
 
 
 ---
@@ -142,10 +140,10 @@ The `categories` matrix in config decides which of these a given meeting emits.
 
 ---
 
-## share_md — plain-text 팀챗 공유본 (e.g. Teams)
+## share_md — plain-text team-chat share copy (e.g. Teams)
 
-파일명: `YYMMDD_<category>_공유.md`. detail_md에서 내부 멘션 제거 + 압축한 형태.
-제목·라벨 형식은 **profile structure.md §산출물 제목 규칙이 정본** — 아래 예시 첫 줄은 중립 예시일 뿐 그대로 쓰지 말 것.
+Filename: `YYMMDD_<category>_공유.md`. Derived from detail_md with internal mentions removed and compressed.
+Title/label format: **profile structure.md §산출물 제목 규칙 is the authoritative source** — the example first line below is a neutral illustration only; do not use it verbatim.
 
 ```
 (Daily, M/D) 「프로젝트명」 데일리 이슈 회의
@@ -169,21 +167,21 @@ Org B
 - 항목 (to.기관)
 ```
 
-금지: 이모지 일체, 마크다운 굵기 `**`, 헤더 기호 `#`, 마크다운 표 `| |`, 코드펜스.
-규칙:
-- 최상위 섹션 헤더만 plain text (`주요 논의 내용`, `Action Items`).
-- 개별 안건은 `1. 제목` 순번 — 주제별 `[대괄호]` 그룹핑 금지.
-- 안건 사이 빈 줄 1개 필수 (리스트 깨짐 방지).
-- 들여쓰기 `2칸 + - `(1단계) / `4칸 + · `(2단계).
-- 멘션·직책 표기는 **profile 호칭 규칙이 정본** (기본 `@담당자 직급`; profile이 이름만 지시하면 그에 따름).
-- Action Items는 조직별 그룹 + 끝에 `(시점/주기)`.
-- 완료 항목은 `~~취소선~~`.
+Prohibited: all emoji, markdown bold `**`, header symbols `#`, markdown tables `| |`, code fences.
+Rules:
+- Top-level section headers are plain text only (`주요 논의 내용`, `Action Items`).
+- Individual agenda items use `1. 제목` numbering — `[bracket]` grouping by topic is prohibited.
+- One blank line between agenda items is mandatory (prevents list-rendering breakage).
+- Indentation: `2 spaces + - ` (level 1) / `4 spaces + · ` (level 2).
+- Mention/title notation: **profile honorific rules are authoritative** (default `@담당자 직급`; follow profile if it specifies name-only).
+- Action Items: group by org + append `(시점/주기)` at the end.
+- Completed items: `~~취소선~~`.
 
 ---
 
-## detail_md — 작업폴더 상세본 (vault 정본의 사본)
+## detail_md — full working-folder copy (source of truth for vault)
 
-파일명: `YYMMDD_<category>.md`. share_md보다 풍부 — 오류코드/타임스탬프 전부 보존.
+Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error codes and timestamps.
 
 ```
 # <category> 회의록 (M/D 요일)
@@ -203,17 +201,17 @@ Org B
 - 세부: 오류코드 `E-XXX`, 타임스탬프 `HH:MM:SS` 등 원자료 전부.
 
 ## Action Items
-(share_md와 동일 구조, 단 내부 멘션 포함)
+(same structure as share_md, but internal mentions included)
 ```
 
-share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
+share_md = derive from this detailed copy by removing internal mentions and compressing to one-line summaries.
 
 ---
 
-## canvas — 정기/워크샵 검토 표면
+## canvas — periodic / workshop review surface
 
-표 절대 금지 — Action Items 포함 전부 체크박스 리스트.
-최상위 3단 구조: `# 개요` / `# 논의 내용` / `# Action Items`. "핵심 발견" 류 AI 헤더 금지.
+Tables absolutely prohibited — Action Items and all content must use checkbox lists.
+Top-level three-section structure: `# 개요` / `# 논의 내용` / `# Action Items`. AI-generated headers such as "핵심 발견" are prohibited.
 
 ```
 # 개요
@@ -236,17 +234,17 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 - YYYY-MM-DD 이벤트명·내용
 ```
 
-공유 URL 형식: `(해당없음)/docs/(해당없음)/<canvas_id>`
-(도구가 반환하는 웹 UI URL 형식 그대로 주지 말 것 — 위 `/docs/` 형식으로 변환).
-채널 게시 시 `(해당없음)` 사용.
+Share URL format: `(해당없음)/docs/(해당없음)/<canvas_id>`
+(Do not use the web UI URL format returned by the tool as-is — convert it to the `/docs/` format above.)
+Use `(해당없음)` when posting to a channel.
 
 ---
 
-## gmail — 회의록 메일 초안
+## gmail — meeting-minutes mail draft
 
-> ⚠️ **메일 본문 형태(제목·인사·본문 depth·맺음말·멘션 표기)는 조직마다 완전히 다름 → profile이 정본.**
-> `profiles/<active>/conventions.md` §채널 관례의 Gmail 템플릿을 **반드시 Read 후 그대로** 따른다.
-> profile에 Gmail 템플릿이 없으면(또는 profile=null) 아래 generic 최소본 사용 + **직전 sent 메일 미러**.
+> ⚠️ **Mail body form (subject, greeting, body depth, closing, mention notation) differs completely by org → profile is authoritative.**
+> Read `profiles/<active>/conventions.md` §채널 관례's Gmail template **exactly as-is** before following it.
+> If the profile has no Gmail template (or profile=null), use the generic minimal skeleton below + **mirror the most recent sent mail**.
 
 ```
 제목: [「프로젝트명」] <category> 회의록 공유드립니다. (라벨, M/D)
@@ -255,16 +253,16 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 인사(고정 문구는 profile) → 회의록 본문 → Action Items(조직별) → 맺음(고정 문구는 profile)
 ```
 
-- **회의록 메일 = 본문에 회의록 전문(full body).** 요약본·"Canvas 링크만" 1줄은 금지 — 깊이 기준 = **직전 sent 회의록 메일**(최신 1건만 Read 후 미러, 그 외 재독 금지). 첨부(리포트)는 인사말 안내만.
-- 표 금지, 목록/체크리스트로. 수신/참조는 profile contacts 매핑으로 채움. `create_draft`는 plain 이메일만(`이름 <메일>` 형식 불가).
-- contacts에 없는 참석자는 수신란에 `[미확인: 이름]` placeholder로 명시 출력 — 임의 추측·조용한 누락 금지 (사용자가 초안 검토에서 채움).
+- **Meeting-minutes mail = full meeting-minutes body in the mail body.** A summary-only or "Canvas link only" single line is prohibited — depth standard = **the most recent sent meeting-minutes mail** (Read only the latest 1 item then mirror; do not re-read others). Attachments (reports) are announced in the greeting only.
+- Tables prohibited; use lists/checklists. To/CC filled from profile contacts mapping. `create_draft` accepts plain email only (the `이름 <메일>` format is not supported).
+- Attendees not found in contacts must be explicitly printed in the To field as `[미확인: 이름]` placeholder — no guessing or silent omission (the user fills them in during draft review).
 
 ---
 
-## vault — 정본
+## vault — authoritative copy
 
-frontmatter는 `config.vault_frontmatter.required` 필드로 구성.
-본문 섹션 순서 (고정):
+Frontmatter is composed from `config.vault_frontmatter.required` fields.
+Body section order (fixed):
 
 ```
 ---
@@ -290,7 +288,7 @@ frontmatter는 `config.vault_frontmatter.required` 필드로 구성.
 ## 일정
 ```
 
-저장 후 qmd 사용 가능 시 인덱싱, ontology 사용 가능 시 decisions/relations 기록.
+After saving, index with qmd if available; record decisions/relations with ontology if available.
 
 
 ---

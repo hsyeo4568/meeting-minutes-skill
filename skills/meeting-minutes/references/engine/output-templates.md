@@ -8,10 +8,10 @@ The `categories` matrix in config decides which of these a given meeting emits.
 
 ---
 
-## share_md — plain-text 팀챗 공유본 (e.g. Teams)
+## share_md — plain-text team-chat share copy (e.g. Teams)
 
-파일명: `YYMMDD_<category>_공유.md`. detail_md에서 내부 멘션 제거 + 압축한 형태.
-제목·라벨 형식은 **profile structure.md §산출물 제목 규칙이 정본** — 아래 예시 첫 줄은 중립 예시일 뿐 그대로 쓰지 말 것.
+Filename: `YYMMDD_<category>_공유.md`. Derived from detail_md with internal mentions removed and compressed.
+Title/label format: **profile structure.md §산출물 제목 규칙 is the authoritative source** — the example first line below is a neutral illustration only; do not use it verbatim.
 
 ```
 (Daily, M/D) {{project_name}} 데일리 이슈 회의
@@ -35,21 +35,21 @@ Org B
 - 항목 (to.기관)
 ```
 
-금지: 이모지 일체, 마크다운 굵기 `**`, 헤더 기호 `#`, 마크다운 표 `| |`, 코드펜스.
-규칙:
-- 최상위 섹션 헤더만 plain text (`주요 논의 내용`, `Action Items`).
-- 개별 안건은 `1. 제목` 순번 — 주제별 `[대괄호]` 그룹핑 금지.
-- 안건 사이 빈 줄 1개 필수 (리스트 깨짐 방지).
-- 들여쓰기 `2칸 + - `(1단계) / `4칸 + · `(2단계).
-- 멘션·직책 표기는 **profile 호칭 규칙이 정본** (기본 `@담당자 직급`; profile이 이름만 지시하면 그에 따름).
-- Action Items는 조직별 그룹 + 끝에 `(시점/주기)`.
-- 완료 항목은 `~~취소선~~`.
+Prohibited: all emoji, markdown bold `**`, header symbols `#`, markdown tables `| |`, code fences.
+Rules:
+- Top-level section headers are plain text only (`주요 논의 내용`, `Action Items`).
+- Individual agenda items use `1. 제목` numbering — `[bracket]` grouping by topic is prohibited.
+- One blank line between agenda items is mandatory (prevents list-rendering breakage).
+- Indentation: `2 spaces + - ` (level 1) / `4 spaces + · ` (level 2).
+- Mention/title notation: **profile honorific rules are authoritative** (default `@담당자 직급`; follow profile if it specifies name-only).
+- Action Items: group by org + append `(시점/주기)` at the end.
+- Completed items: `~~취소선~~`.
 
 ---
 
-## detail_md — 작업폴더 상세본 (vault 정본의 사본)
+## detail_md — full working-folder copy (source of truth for vault)
 
-파일명: `YYMMDD_<category>.md`. share_md보다 풍부 — 오류코드/타임스탬프 전부 보존.
+Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error codes and timestamps.
 
 ```
 # <category> 회의록 (M/D 요일)
@@ -69,17 +69,17 @@ Org B
 - 세부: 오류코드 `E-XXX`, 타임스탬프 `HH:MM:SS` 등 원자료 전부.
 
 ## Action Items
-(share_md와 동일 구조, 단 내부 멘션 포함)
+(same structure as share_md, but internal mentions included)
 ```
 
-share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
+share_md = derive from this detailed copy by removing internal mentions and compressing to one-line summaries.
 
 ---
 
-## canvas — 정기/워크샵 검토 표면
+## canvas — periodic / workshop review surface
 
-표 절대 금지 — Action Items 포함 전부 체크박스 리스트.
-최상위 3단 구조: `# 개요` / `# 논의 내용` / `# Action Items`. "핵심 발견" 류 AI 헤더 금지.
+Tables absolutely prohibited — Action Items and all content must use checkbox lists.
+Top-level three-section structure: `# 개요` / `# 논의 내용` / `# Action Items`. AI-generated headers such as "핵심 발견" are prohibited.
 
 ```
 # 개요
@@ -102,17 +102,17 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 - YYYY-MM-DD 이벤트명·내용
 ```
 
-공유 URL 형식: `{{slack_url_base}}/docs/{{slack_workspace_id}}/<canvas_id>`
-(도구가 반환하는 웹 UI URL 형식 그대로 주지 말 것 — 위 `/docs/` 형식으로 변환).
-채널 게시 시 `{{slack_channel_id}}` 사용.
+Share URL format: `{{slack_url_base}}/docs/{{slack_workspace_id}}/<canvas_id>`
+(Do not use the web UI URL format returned by the tool as-is — convert it to the `/docs/` format above.)
+Use `{{slack_channel_id}}` when posting to a channel.
 
 ---
 
-## gmail — 회의록 메일 초안
+## gmail — meeting-minutes mail draft
 
-> ⚠️ **메일 본문 형태(제목·인사·본문 depth·맺음말·멘션 표기)는 조직마다 완전히 다름 → profile이 정본.**
-> `profiles/<active>/conventions.md` §채널 관례의 Gmail 템플릿을 **반드시 Read 후 그대로** 따른다.
-> profile에 Gmail 템플릿이 없으면(또는 profile=null) 아래 generic 최소본 사용 + **직전 sent 메일 미러**.
+> ⚠️ **Mail body form (subject, greeting, body depth, closing, mention notation) differs completely by org → profile is authoritative.**
+> Read `profiles/<active>/conventions.md` §채널 관례's Gmail template **exactly as-is** before following it.
+> If the profile has no Gmail template (or profile=null), use the generic minimal skeleton below + **mirror the most recent sent mail**.
 
 ```
 제목: [{{project_name}}] <category> 회의록 공유드립니다. (라벨, M/D)
@@ -121,16 +121,16 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 인사(고정 문구는 profile) → 회의록 본문 → Action Items(조직별) → 맺음(고정 문구는 profile)
 ```
 
-- **회의록 메일 = 본문에 회의록 전문(full body).** 요약본·"Canvas 링크만" 1줄은 금지 — 깊이 기준 = **직전 sent 회의록 메일**(최신 1건만 Read 후 미러, 그 외 재독 금지). 첨부(리포트)는 인사말 안내만.
-- 표 금지, 목록/체크리스트로. 수신/참조는 profile contacts 매핑으로 채움. `create_draft`는 plain 이메일만(`이름 <메일>` 형식 불가).
-- contacts에 없는 참석자는 수신란에 `[미확인: 이름]` placeholder로 명시 출력 — 임의 추측·조용한 누락 금지 (사용자가 초안 검토에서 채움).
+- **Meeting-minutes mail = full meeting-minutes body in the mail body.** A summary-only or "Canvas link only" single line is prohibited — depth standard = **the most recent sent meeting-minutes mail** (Read only the latest 1 item then mirror; do not re-read others). Attachments (reports) are announced in the greeting only.
+- Tables prohibited; use lists/checklists. To/CC filled from profile contacts mapping. `create_draft` accepts plain email only (the `이름 <메일>` format is not supported).
+- Attendees not found in contacts must be explicitly printed in the To field as `[미확인: 이름]` placeholder — no guessing or silent omission (the user fills them in during draft review).
 
 ---
 
-## vault — 정본
+## vault — authoritative copy
 
-frontmatter는 `config.vault_frontmatter.required` 필드로 구성.
-본문 섹션 순서 (고정):
+Frontmatter is composed from `config.vault_frontmatter.required` fields.
+Body section order (fixed):
 
 ```
 ---
@@ -156,4 +156,4 @@ frontmatter는 `config.vault_frontmatter.required` 필드로 구성.
 ## 일정
 ```
 
-저장 후 qmd 사용 가능 시 인덱싱, ontology 사용 가능 시 decisions/relations 기록.
+After saving, index with qmd if available; record decisions/relations with ontology if available.
