@@ -33,7 +33,7 @@
 - **Canvas 병렬 update 금지** — `update_canvas`를 여러 `section_id`에 병렬 호출 시 매핑 충돌로 본문 소실.
   - 대규모 수정: `action=replace` + `section_id` 생략 = 전체 full-replace 1회(원자적). 사전 `read_canvas`로 백업.
   - 소규모 수정: 순차 호출.
-- **`update_canvas` 실패(`missing_scope`)** → 수정 대신 새 canvas 생성.
+- **`update_canvas` 실패(`missing_scope`)** → 수정 대신 새 canvas 생성. **필수 후속**: 정본 frontmatter canvas id 즉시 갱신 + 구 canvas stale 안내(삭제 도구 없음 → 사용자 수동 삭제 안내). 무통지 교체 금지 — 채널 멤버가 구 canvas를 계속 보게 됨.
 - **`canvas_tab_creation_failed`** (대화당 1개 한계) → standalone canvas + `user_ids` 공유 fallback (채널ID 아닌 `user_ids` 필수).
 - **`canvas_creation_failed: Unsupported block type (BlockQuote) within block quote`** → 본문 `>>` 중첩 인용 1개도 전체 생성 실패. canvas markdown은 `>` 단일 blockquote만 허용 → 작성 시 `>>`→`>` 치환 후 생성. (에러 메시지에 줄번호 명시됨)
 - **Gmail 첨부 미지원** → 본문에 안내 문구 + 사용자에게 파일 직접 첨부 요청.

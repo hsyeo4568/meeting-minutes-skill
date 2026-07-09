@@ -55,6 +55,24 @@ for t in sorted(used):
 if not fail:
     print("  all tokens resolve to concrete config values")
 
+# 3b. path safety: reject traversal/absolute/expansion values in path-composing keys
+_path_checks = {"vault_meetings_subpath": TOKMAP["vault_meetings_subpath"],
+                "project_slug": TOKMAP["project_slug"]}
+_topics = (cfg.get("paths") or {}).get("topics_moc")
+if _topics:
+    _path_checks["topics_moc"] = _topics
+for key, raw in _path_checks.items():
+    val = str(raw)
+    bad = (
+        ".." in val
+        or val.startswith(("/", "\\", "~", "$", "%"))
+        or ":" in val  # drive-absolute (C:), URL scheme, NTFS ADS
+        or (key == "project_slug" and any(c in val for c in "/\\"))
+    )
+    if bad:
+        print(f"  UNSAFE PATH VALUE: {key} = {val!r} (traversal/absolute/expansion rejected)")
+        fail = 1
+
 # 4. profile loads
 prof = ROOT / cfg["project"]["profile"]
 need = ["domain-glossary.md","contacts.md","conventions.md"]

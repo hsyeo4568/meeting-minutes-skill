@@ -16,6 +16,7 @@ paths:
   vault: "<ABS PATH TO CANONICAL STORE ROOT>"       # {{vault_path}} — notes vault / docs folder / wiki root
   work_folder: "<ABS PATH TO MEETING SOURCE DIR>"   # {{work_folder}} — raw recordings/xlsx live here
   vault_meetings_subpath: "projects/<slug>/meetings" # {{vault_meetings_subpath}}
+  # topics_moc: "topics/_MOC.md"                     # optional — phase 6.5 topic sync registry; omit to skip the phase
 
 # Category x deliverable matrix. THIS IS CONFIG — every org meets differently.
 # Keys are category ids; values are deliverable flags. gmail: true|false|optional.

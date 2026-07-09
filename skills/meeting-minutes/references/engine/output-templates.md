@@ -11,6 +11,7 @@ The `categories` matrix in config decides which of these a given meeting emits.
 ## share_md — plain-text 팀챗 공유본 (e.g. Teams)
 
 파일명: `YYMMDD_<category>_공유.md`. detail_md에서 내부 멘션 제거 + 압축한 형태.
+제목·라벨 형식은 **profile structure.md §산출물 제목 규칙이 정본** — 아래 예시 첫 줄은 중립 예시일 뿐 그대로 쓰지 말 것.
 
 ```
 (Daily, M/D) {{project_name}} 데일리 이슈 회의
@@ -28,7 +29,7 @@ The `categories` matrix in config decides which of these a given meeting emits.
 Action Items
 
 Org A
-- 항목 (TO.담당자) / 완료 시 ~~취소선~~
+- 항목 (to.담당자) / 완료 시 ~~취소선~~
 
 Org B
 - 항목 (to.기관)
@@ -40,7 +41,7 @@ Org B
 - 개별 안건은 `1. 제목` 순번 — 주제별 `[대괄호]` 그룹핑 금지.
 - 안건 사이 빈 줄 1개 필수 (리스트 깨짐 방지).
 - 들여쓰기 `2칸 + - `(1단계) / `4칸 + · `(2단계).
-- 멘션은 `@담당자 직급` 형식.
+- 멘션·직책 표기는 **profile 호칭 규칙이 정본** (기본 `@담당자 직급`; profile이 이름만 지시하면 그에 따름).
 - Action Items는 조직별 그룹 + 끝에 `(시점/주기)`.
 - 완료 항목은 `~~취소선~~`.
 
@@ -96,6 +97,9 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 - [ ] 항목 — 담당 `기한`
 ### Org B
 - [ ] 항목 — 담당 `기한`
+
+# 일정 (있을 때만)
+- YYYY-MM-DD 이벤트명·내용
 ```
 
 공유 URL 형식: `{{slack_url_base}}/docs/{{slack_workspace_id}}/<canvas_id>`
@@ -104,22 +108,22 @@ share_md = 이 상세본에서 내부 멘션 제거 + 1줄 요약으로 압축.
 
 ---
 
-## gmail — 정기회의 메일 초안
+## gmail — 회의록 메일 초안
+
+> ⚠️ **메일 본문 형태(제목·인사·본문 depth·맺음말·멘션 표기)는 조직마다 완전히 다름 → profile이 정본.**
+> `profiles/<active>/conventions.md` §채널 관례의 Gmail 템플릿을 **반드시 Read 후 그대로** 따른다.
+> profile에 Gmail 템플릿이 없으면(또는 profile=null) 아래 generic 최소본 사용 + **직전 sent 메일 미러**.
 
 ```
-제목: [{{project_name}}] M/D <category> 회의록
-받는사람: (profile contacts에서 해석)
-참조: (profile contacts에서 해석)
+제목: [{{project_name}}] <category> 회의록 공유드립니다. (라벨, M/D)
+받는사람 / 참조: profile contacts 매핑
 
-본문:
-안녕하세요, 이름입니다.
-M/D 진행된 회의 내용 공유드립니다.
-
-(회의록 본문 구조 = canvas 본문과 동일: 개요 → 논의 내용 → Action Items)
+인사(고정 문구는 profile) → 회의록 본문 → Action Items(조직별) → 맺음(고정 문구는 profile)
 ```
 
-표 금지, 체크리스트로 작성. 수신/참조는 profile contacts 매핑으로 채움.
-contacts에 없는 참석자는 수신란에 `[미확인: 이름]` placeholder로 명시 출력 — 임의 추측·조용한 누락 금지 (사용자가 초안 검토에서 채움).
+- **회의록 메일 = 본문에 회의록 전문(full body).** 요약본·"Canvas 링크만" 1줄은 금지 — 깊이 기준 = **직전 sent 회의록 메일**(최신 1건만 Read 후 미러, 그 외 재독 금지). 첨부(리포트)는 인사말 안내만.
+- 표 금지, 목록/체크리스트로. 수신/참조는 profile contacts 매핑으로 채움. `create_draft`는 plain 이메일만(`이름 <메일>` 형식 불가).
+- contacts에 없는 참석자는 수신란에 `[미확인: 이름]` placeholder로 명시 출력 — 임의 추측·조용한 누락 금지 (사용자가 초안 검토에서 채움).
 
 ---
 

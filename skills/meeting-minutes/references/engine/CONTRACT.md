@@ -40,6 +40,7 @@ Profile-supplied (engine references them but does NOT hardcode values; profile f
 4. Per-category deliverables — apply `categories` matrix (output-templates.md).
 5. Share routing — per category: share_md / canvas / gmail. Missing tool -> file fallback.
 6. Canonical save — write the authoritative copy to the configured store (config.paths.vault — a notes vault / docs folder / wiki; org-dependent) with config.vault_frontmatter. Optional: index (qmd) if available.
+6.5. Topic sync — optional; only if config.paths.topics_moc is set: append meeting evidence lines to matching topic notes (append-only). Skip entirely if the key is absent.
 7. Knowledge-graph update — record decisions/relations if tools.ontology available; else skip entirely (optional add-on, not required for a valid run).
 
 ## Degradation principle (gate #2 — checklist, read-through of SKILL.md)
