@@ -24,8 +24,8 @@ Note: some environments have Gmail/Slack MCP planned for future deployment → t
 ## Tool mechanics (when available)
 
 - **Slack Canvas**: MCP `create_canvas` / `read_canvas` / `update_canvas`.
-  - For user review: DM (`dm_user_id: {{slack_user_id}}`); for channel posting: `channel_id: {{slack_channel_id}}`.
-  - Flow: create → share URL → user edits → retrieve final version with `read_canvas` → apply to Vault canonical save.
+  - **Default = DM (`dm_user_id: {{slack_user_id}}`)** — hand the user the canvas + link only; the user posts to the channel themselves. Do NOT create with `channel_id` unless the user explicitly asks to auto-post: `channel_id` mode auto-posts a bot link message that a regular member cannot delete (only workspace admins / the posting bot token can), so an unwanted or superseded post gets stuck in-channel.
+  - Flow: create in DM → give URL → user edits → retrieve final with `read_canvas` → apply to Vault canonical save. Report the canvas link; leave channel sharing to the user.
 - **Gmail**: Create draft only. **Auto-send is prohibited** — user reviews and sends.
 
 ## Known failures / fallback
