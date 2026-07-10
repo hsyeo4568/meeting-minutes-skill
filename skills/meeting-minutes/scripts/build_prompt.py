@@ -34,7 +34,7 @@ def load_config(path):
     import yaml
     c = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
     g = lambda *k: dig(c, *k)
-    return {
+    table = {
         "me": g("identity","me"), "org": g("identity","org"),
         "project_name": g("project","name"), "project_slug": g("project","slug"),
         "language": g("locale","language"), "business_style": g("locale","business_style"),
@@ -43,16 +43,27 @@ def load_config(path):
            ["vault_path","work_folder","vault_meetings_subpath","slack_workspace_id",
             "slack_channel_id","slack_user_id","slack_url_base"]},
     }
+    try:
+        headers = dig(c, "locale", "headers") or {}   # optional i18n override map
+    except (KeyError, TypeError):
+        headers = {}
+    return table, headers
 
 def fill(text, table):
     return re.sub(r"\{\{([a-z_]+)\}\}", lambda m: table.get(m.group(1), m.group(0)), text)
+
+def apply_headers(text, headers):
+    """config locale.headers i18n override — plain string replace, longest-first."""
+    for k in sorted(headers, key=len, reverse=True):
+        text = text.replace(k, str(headers[k]))
+    return text
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config")
     ap.add_argument("-o", "--out", default=str(ROOT / "PROMPT-ONLY.md"))
     a = ap.parse_args()
-    table = load_config(a.config) if a.config else GENERIC
+    table, headers = load_config(a.config) if a.config else (GENERIC, {})
 
     rules = (ENG / "writing-principles.md").read_text(encoding="utf-8")
     templ = (ENG / "output-templates.md").read_text(encoding="utf-8")
@@ -102,6 +113,8 @@ def main():
 
 [여기에 회의 녹취나 노트를 붙여넣으세요. 위 규칙/구조대로 회의록을 작성하라.]
 """
+    if headers:
+        out = apply_headers(out, headers)
     if a.out == "-":
         sys.stdout.write(out)
     else:

@@ -1,0 +1,19 @@
+{
+  "skills": ["meeting-minutes"],
+  "query": "다음 녹취로 회의록을 만들어줘: evals/fixtures/transcript-workshop.txt. 이 eval의 컨텍스트: 카테고리 매트릭스 = daily→share_md만 / regular→detail_md+canvas+gmail+vault / workshop→canvas+vault. profile은 profiles/example-acme/ 사용 (로드 실패 시 profile=null로 진행). 이 세션에는 Slack canvas 도구와 Gmail 도구가 존재하지 않는다(사용 불가 — 호출 시도 금지). MD-first 초안 승인은 사전 승인된 것으로 간주. 산출물은 임시 출력 폴더에 저장하고 evals/fixtures/ 원본은 수정 금지. 실행 끝에 산출물 상태 요약을 보고해줘.",
+  "files": [
+    "evals/fixtures/transcript-workshop.txt"
+  ],
+  "expected_behavior": [
+    "카테고리를 workshop(워크샵)으로 판별 — 판별 근거 명시",
+    "canvas 도구 부재에도 실행이 중단/실패하지 않음 (에러로 abort 금지)",
+    "degradation 경로 적용: canvas 본문을 .md 파일로 저장 + '수동 게시 필요' 류 안내 명시",
+    "vault 정본 .md 생성 (도구 불필요 branch는 정상 산출)",
+    "실행 끝 상태 요약이 생성/degraded/보류/스킵 4분류로 존재하며, canvas가 degraded(사유: 도구 부재)로 명시됨 — '게시 완료'로 허위 보고하지 않음",
+    "도구 부재를 조용히 넘기지 않음: 요약만 봐도 'canvas는 게시되지 않았다'를 알 수 있음",
+    "존재하지 않는 canvas/gmail 도구 호출 시도 없음",
+    "본문 품질: 확정 과제(파크뷰 갱신 주기 단축)와 이월 검토 안건(구독 모델, 충전 구역 연동)이 구분되어 기록 — 이월 안건을 확정 결정으로 기록하지 않음",
+    "참석자 날조 없음 — 발화자 5인(박상호, 김단아, 윤도현, 이종훈, 서지안) 범위 내",
+    "evals/fixtures/transcript-workshop.txt 원본 무수정"
+  ]
+}

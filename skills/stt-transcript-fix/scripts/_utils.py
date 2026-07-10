@@ -5,6 +5,14 @@ import sys
 import time
 from pathlib import Path
 
+# Windows cp949 console: warnings/notes contain em-dash/Korean — force UTF-8 stdout
+# (guarded: stdout may be None under pythonw / detached tasks).
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (OSError, ValueError) as _e:
+        pass  # non-fatal: prints may mojibake but never crash correction runs
+
 _encoding_warned = set()
 
 # Single source of truth for quick-scan variant density threshold.
@@ -81,7 +89,10 @@ def mask_comments(text: str):
             depth = 1
             j = i + 2
             while j < len(text) and depth > 0:
-                if text[j] == "(" and j + 1 < len(text) and text[j+1] != "*":
+                if text[j] == "(":
+                    if text[j:j+2] == "(*":
+                        # Nested marker inside a span — SKILL.md promises Tier-C escalation.
+                        print(f"WARNING: nested (* inside marker span at position {j} — Tier-C: verify span manually")
                     depth += 1
                 elif text[j] == ")":
                     depth -= 1
@@ -90,12 +101,10 @@ def mask_comments(text: str):
                         break
                 j += 1
                 if j - i > 200:
-                    print(f"WARNING: (* comment exceeds 200 chars — cut at position {j}")
+                    print(f"WARNING: (* marker exceeds 200 chars — cut at position {j}")
                     break
-                nlpos = text.find("\n\n", j)
-                if nlpos != -1 and j > nlpos and depth > 0:
-                    print(f"WARNING: (* comment imbalanced — cut at blank line (position {nlpos})")
-                    j = nlpos
+                if depth > 0 and text[j:j+2] == "\n\n":
+                    print(f"WARNING: (* marker imbalanced — cut at blank line (position {j})")
                     break
             ph = f"__CMT{i:08d}__"
             spans.append((ph, text[i:j]))

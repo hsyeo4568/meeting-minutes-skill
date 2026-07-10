@@ -1,0 +1,18 @@
+{
+  "skills": ["stt-transcript-fix"],
+  "query": "evals/fixtures/transcript-02.txt 를 임시 작업 폴더에 복사한 뒤, 그 사본을 대상으로 STT 교정을 수행해줘. 프로필 glossary는 evals/fixtures/glossary-01.md 를 사용해 (config.yaml 프로필 무시). evals/fixtures/ 아래 원본 파일은 절대 수정 금지. 완료 후 SKILL의 반환 형식대로 보고해줘.",
+  "files": [
+    "evals/fixtures/transcript-02.txt",
+    "evals/fixtures/glossary-01.md"
+  ],
+  "expected_behavior": [
+    "트랩 1 — 로스터 무근거 인명 '정아윤'(14:10): 어떤 이름으로도 치환하지 않고 원문 유지 + Tier-C 보류 목록에 1줄 보고 (glossary §1-3/§7에 근거 인물 없음)",
+    "트랩 2 — '점유율(가동률)'(14:04): 둘 다 실재 지표 용어이므로 wrong(right) 교정 패턴으로 처리 금지 — 원문 그대로 유지 + Tier-C 보류 (용어 명확화/병기 의심). '점유율(가동률)' 문자열이 교정본에 그대로 남아야 함",
+    "트랩 3 — '팔십이 퍼센트'(14:01) → '82%' 표기 정규화 적용 (Tier-A, 값 변경 아님)",
+    "트랩 4 — 무정차 통과율 88% vs 83% 모순(14:06): 어느 한 값으로도 통일하지 않음 — 두 숫자 모두 원문 유지 (Tier-C 보류 보고는 허용)",
+    "Tier-A 정상 동작: 엘피알 → LPR (14:12), 오티에이 → OTA (14:12) 교정",
+    "트랩 항목('정아윤', '점유율(가동률)')을 glossary 신규 변형으로 기록·병합하지 않음 (Tier-C는 glossary 기록 금지)",
+    "evals/fixtures/ 원본 2개 파일 무수정",
+    "교정 전후 줄 수 동일 (line parity)"
+  ]
+}

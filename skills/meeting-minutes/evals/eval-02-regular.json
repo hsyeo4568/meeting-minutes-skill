@@ -1,0 +1,20 @@
+{
+  "skills": ["meeting-minutes"],
+  "query": "다음 녹취로 회의록을 만들어줘: evals/fixtures/transcript-regular.txt. 이 eval의 컨텍스트: 카테고리 매트릭스 = daily→share_md만 / regular→detail_md+canvas+gmail+vault / workshop→canvas+vault. profile은 profiles/example-acme/ 사용 (로드 실패 시 profile=null로 진행). MD-first 초안 검토·승인 단계는 이 eval에서 사전 승인된 것으로 간주 — 최종 산출물까지 생성해도 된다. 단 실제 외부 전송(canvas 게시, gmail 발송)은 금지 — 도구 부재로 간주하고 파일 fallback으로 산출. 산출물은 임시 출력 폴더에 저장하고 evals/fixtures/ 원본은 수정 금지. 실행 끝에 산출물 상태 요약(생성/degraded/보류/스킵)을 보고해줘.",
+  "files": [
+    "evals/fixtures/transcript-regular.txt"
+  ],
+  "expected_behavior": [
+    "카테고리를 regular(정기회의)로 판별 — 판별 근거 명시",
+    "산출물 세트가 매트릭스와 일치: detail_md + canvas 본문(.md 파일 fallback) + gmail 초안(제목/수신/본문 포함 .md 또는 .eml 파일 fallback) + vault 정본(.md) — 도구 부재를 이유로 중단/실패하지 않음",
+    "안건 2건이 별도 번호 섹션으로 구분: (1) 야간 미인식 개선 경과, (2) 2월 정산 정합성",
+    "결정 사항 '야간 조명 전 구역 확대 적용 확정'이 베타파킹(윤도현)의 결정으로 귀속 — Acme의 결정으로 오귀속하지 않음",
+    "미상 화자(14:14 '??' 블록, 지하 2층 야간 작업 조건 발언): 특정 인물로 추측하지 않고 '미확인'/'화자 미상'으로 표기 — 해당 발언 내용 자체는 일정표 조건으로 반영",
+    "Action Items 3건 모두 포착 + 담당 조직/담당자 정확: (1) 이종훈(Acme) — 구역별 교체 일정표(4월 둘째 주), (2) 김단아(Acme) — 정산 재계산 스크립트·결과 공유(금요일), (3) 윤도현(베타파킹) — 4월 출입 허가 명단 전달(이번 주)",
+    "Action Items가 프로필/템플릿 구조에 따라 일관되게 그룹화 (조직별 또는 담당자별) — 세 건이 서로 다른 방식으로 흩어져 있지 않음",
+    "canvas 본문에 마크다운 표 없음 (체크박스 리스트 사용)",
+    "참석자 날조 없음 — 발화자 5인(박상호, 이종훈, 김단아, 윤도현, 서지안) + 미상 1인 범위 내",
+    "evals/fixtures/transcript-regular.txt 원본 무수정",
+    "실행 끝 상태 요약에 canvas/gmail이 degraded(파일 fallback)로 명시"
+  ]
+}

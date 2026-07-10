@@ -75,7 +75,7 @@ Detail in `references/engine/tooling.md`. Boot: detect tools → produce only av
 - All integrations (Slack/Gmail/qmd/ontology) are **optional** — absent → `.md` fallback, not a failure. Detail in `SETUP.md` §3.
 
 > Personal information (real contacts, customer names) goes in `config.yaml` and your own profile — both are `.gitignore`d. Only the engine, `_template`, and `example-acme` go into the shared repo.
-> **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) **defaults to Korean unless overridden**. `locale.language` / `business_style` drives the *prose style* guidance for body text; the header/label strings themselves come from the templates, so a non-Korean org overrides them directly in the profile/template strings (config gap, not a temporal limitation).
+> **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) **defaults to Korean**. `locale.language` / `business_style` drives the *prose style* guidance for body text; header/label strings are overridden via the `config.yaml locale.headers` map (e.g. `{"이전 회의 연계 맥락": "Prior Meeting Context"}`) — `build_prompt.py --config` applies it to the generated prompt, and the runtime must honor the same map when emitting deliverables.
 
 ---
 

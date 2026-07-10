@@ -18,7 +18,7 @@ Raw transcripts and sheets live under `{{work_folder}}`. The canonical store is 
 
 ## 2. Speaker ID + clean
 
-- Speaker mapping: raw speaker labels → official labels. Cross-check against contacts if a profile is available; use placeholders otherwise.
+- Speaker mapping: raw speaker labels → official labels. Cross-check against contacts if a profile is available; use placeholders otherwise. **Mentioned persons who are not speakers follow the same rule** — if unverifiable, keep the mention with an unconfirmed flag (`[미확인]`); never silently drop the person from the minutes.
 - Remove filler words, repetitions, and noise. Preserve meaning; maintain the distinction between positions stated and agreements reached.
 - `{{me}}` = "나"/"I" speaker. Normalize first-person utterances to this label.
 

@@ -40,9 +40,10 @@ tools:
   ontology: auto
 
 locale:
-  # NOTE: 산출물 헤더/보일러플레이트는 현재 한국어 고정(출력 i18n 미지원). 아래 값은 본문 *문체* 지침용.
+  # language/business_style = 본문 *문체* 지침. 산출물 헤더 문자열은 한국어 기본 — headers 맵으로 오버라이드.
   language: ko                       # {{language}}
   business_style: korean-gaejosik    # {{business_style}} — korean-gaejosik | plain | english
+  headers: {}   # optional: override output header strings, e.g. {"이전 회의 연계 맥락": "Prior Meeting Context", "핵심 논의": "Key Discussion"}
 
 # Vault frontmatter schema (field names the engine writes). Adjust to your vault contract.
 # NOTE: slack_canvas_id is only meaningful if you use Slack canvases — remove it (and any

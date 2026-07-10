@@ -3,6 +3,7 @@
 > GENERIC structures only. ZERO proper nouns. Fill specifics from config.yaml + profile.
 > Tokens used here: `{{project_name}}` `{{orgs}}` `{{slack_url_base}}` `{{slack_workspace_id}}`
 > `{{slack_channel_id}}`. Example bodies use neutral fakes (`Org A`, `이름`) — never real names.
+> Header strings in templates are defaults — if config `locale.headers` provides overrides, use those.
 
 The `categories` matrix in config decides which of these a given meeting emits.
 

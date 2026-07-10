@@ -174,55 +174,55 @@ def main():
         print("NOTE: no replacements or markers specified")
         return 0
 
-    # Lock
+    # Lock — released in finally on ALL paths (success, dry-run, HALT, exception)
     if not U.acquire_lock(target_path):
         print(f"ERROR: could not lock {target_path.name}")
         sys.exit(1)
+    try:
+        original_lines = original.splitlines()
+        le = U.detect_line_ending(original)
 
-    original_lines = original.splitlines()
-    le = U.detect_line_ending(original)
-
-    # Backup
-    bak_path = target_path.with_suffix(target_path.suffix + ".bak")
-    if not args.dry_run:
-        shutil.copy2(target_path, bak_path)
-
-    # Mask comments
-    masked, spans = U.mask_comments(original)
-
-    # Log substring-risky pairs
-    for old_str, new_str, _ in all_rep:
-        if U.is_substring_risky(old_str, new_str):
-            print(f"  NOTE: substring-risky '{old_str}'↔'{new_str}' — using word-boundary regex")
-
-    # Verify counts
-    if verify_counts(masked, reps, ctx, args.force):
-        print("HALT: count mismatches")
-        U.release_lock(target_path)
-        sys.exit(1)
-
-    # Apply corrections + markers
-    changed = apply_corrections(masked, spans, reps, ctx, markers_list, original, le)
-
-    # Verify line count
-    new_lines = changed.splitlines()
-    if len(new_lines) != len(original_lines):
-        print(f"LINE MISMATCH: {len(original_lines)} → {len(new_lines)}")
+        # Backup
+        bak_path = target_path.with_suffix(target_path.suffix + ".bak")
         if not args.dry_run:
-            shutil.copy2(bak_path, target_path)
-            print("RESTORED from .bak")
-        U.release_lock(target_path)
-        sys.exit(1)
-    print(f"Lines OK: {len(new_lines)}")
+            shutil.copy2(target_path, bak_path)
 
-    # Output
-    if args.dry_run:
-        diffs = U.compute_line_diff(original, changed)
-        print(f"\nDRY-RUN: {len(reps)} sets + {len(ctx)} ctx + {len(markers_list)} markers")
-        for d in diffs:
-            print(d)
-    else:
-        write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list)
+        # Mask comments
+        masked, spans = U.mask_comments(original)
+
+        # Log substring-risky pairs
+        for old_str, new_str, _ in all_rep:
+            if U.is_substring_risky(old_str, new_str):
+                print(f"  NOTE: substring-risky '{old_str}'↔'{new_str}' — using word-boundary regex")
+
+        # Verify counts
+        if verify_counts(masked, reps, ctx, args.force):
+            print("HALT: count mismatches")
+            sys.exit(1)
+
+        # Apply corrections + markers
+        changed = apply_corrections(masked, spans, reps, ctx, markers_list, original, le)
+
+        # Verify line count
+        new_lines = changed.splitlines()
+        if len(new_lines) != len(original_lines):
+            print(f"LINE MISMATCH: {len(original_lines)} → {len(new_lines)}")
+            if not args.dry_run:
+                shutil.copy2(bak_path, target_path)
+                print("RESTORED from .bak")
+            sys.exit(1)
+        print(f"Lines OK: {len(new_lines)}")
+
+        # Output
+        if args.dry_run:
+            diffs = U.compute_line_diff(original, changed)
+            print(f"\nDRY-RUN: {len(reps)} sets + {len(ctx)} ctx + {len(markers_list)} markers")
+            for d in diffs:
+                print(d)
+        else:
+            write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list)
+    finally:
+        U.release_lock(target_path)
 
 
 if __name__ == "__main__":

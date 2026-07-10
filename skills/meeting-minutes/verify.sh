@@ -41,5 +41,19 @@ for t in $toks; do
 done
 if [ "$miss" -eq 0 ]; then echo "  OK — all placeholders resolved"; else echo "  FAIL — $miss unresolved"; fail=1; fi
 
+echo "== Gate #4: PROMPT-ONLY drift =="
+# Free/paid parity: PROMPT-ONLY.md is generated FROM the engine — regenerate to stdout
+# and byte-compare. Drift means engine edits never propagated to the free tier.
+if command -v python >/dev/null 2>&1; then
+  if python scripts/build_prompt.py -o - 2>/dev/null | diff -q - PROMPT-ONLY.md >/dev/null 2>&1; then
+    echo "  OK — PROMPT-ONLY.md in sync with engine"
+  else
+    echo "  FAIL — PROMPT-ONLY.md drifted from engine; run: python scripts/build_prompt.py"
+    fail=1
+  fi
+else
+  echo "  SKIP — python not on PATH (gate not enforced)"
+fi
+
 echo "== verify.sh: $([ $fail -eq 0 ] && echo PASS || echo FAIL) =="
 exit $fail

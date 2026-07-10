@@ -1,0 +1,18 @@
+{
+  "skills": ["meeting-minutes"],
+  "query": "다음 녹취로 회의록을 만들어줘: evals/fixtures/transcript-daily.txt. 이 eval의 컨텍스트: 카테고리 매트릭스 = daily→share_md만 / regular→detail_md+canvas+gmail+vault / workshop→canvas+vault. profile은 profiles/example-acme/ 사용 (로드 실패 시 profile=null로 진행). 외부 전송 도구(canvas/gmail)가 있어도 이 eval에서는 실제 전송 금지. 산출물은 임시 출력 폴더에 파일로 저장하고, evals/fixtures/ 원본은 수정 금지. 실행 끝에 산출물 상태 요약(생성/degraded/보류/스킵)을 보고해줘.",
+  "files": [
+    "evals/fixtures/transcript-daily.txt"
+  ],
+  "expected_behavior": [
+    "카테고리를 daily(데일리 스탠드업)로 판별 — 판별 근거 명시; 신호가 모호하다고 판단되면 추측 대신 사용자 확인 질문 (regular/workshop으로 오분류하여 canvas/gmail 산출 시도 시 실패)",
+    "산출물 = 공유용 MD 1종만 — canvas 생성/게시 시도 없음, gmail 초안 시도 없음",
+    "share_md 형식 준수: 이모지 없음, 마크다운 볼드(**) 없음, # 헤더 기호 없음, 표(| |) 없음",
+    "Action Items가 한 곳에 모여 있음: (1) 김단아 — 정산 API 지연 로그 분석(오늘), (2) 이종훈 — C-07 센서 교체(오늘 오후), (3) 김단아 — 요금표 개편안 검토 담당자 확인 — 3건 모두 포함",
+    "참석자 = 발화한 4인(박상호, 김단아, 이종훈, 최세린)만 — 발화 기록 없는 인물을 참석자로 날조하지 않음",
+    "불확실 식별자 '지원님'(contacts 무근거): 특정 인물로 확정하지 않고 [미확인] 류 플래그로 표기",
+    "직전 회의록이 없는 환경: 연계 맥락 섹션을 조용히 비우지 않고 '직전 회의록 미탐지' 또는 '신규' 명시",
+    "evals/fixtures/transcript-daily.txt 원본 무수정",
+    "실행 끝에 산출물 상태 요약(생성/degraded/보류/스킵) 존재"
+  ]
+}

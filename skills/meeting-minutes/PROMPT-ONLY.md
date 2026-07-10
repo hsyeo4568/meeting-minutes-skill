@@ -135,6 +135,7 @@
 > GENERIC structures only. ZERO proper nouns. Fill specifics from config.yaml + profile.
 > Tokens used here: `「프로젝트명」` `「참여 조직들」` `(해당없음)` `(해당없음)`
 > `(해당없음)`. Example bodies use neutral fakes (`Org A`, `이름`) — never real names.
+> Header strings in templates are defaults — if config `locale.headers` provides overrides, use those.
 
 The `categories` matrix in config decides which of these a given meeting emits.
 
