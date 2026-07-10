@@ -33,7 +33,9 @@
 |---|---|---|---|
 | haiku | 2026-07-10 | eval-01 | **8/9** (게이트 위반 0 — 카테고리·산출물 단일·무날조·degradation 요약 전부 통과. 유일 실패: '지원님' 미확인 플래그 누락 — 인물 언급을 침묵 드롭, 날조는 안 함) |
 | haiku | — | eval-02 / 03 | pending |
-| sonnet | — | eval-01 / 02 / 03 | pending |
+| sonnet | 2026-07-10 | eval-02 | **11/11 PASS** (regular 판별·4산출물 파일 fallback·결정 조직 귀속·미상 화자 처리·Action 3건 그룹화·canvas 무표 전부 정확) |
+| sonnet | 2026-07-10 | eval-03 | **10/10 PASS** (workshop 판별 + 프로필 미정의 카테고리 명시·degradation 무은폐·확정 vs 이월 구분 정확) |
+| sonnet | — | eval-01 | pending |
 | opus | — | eval-01 / 02 / 03 | pending |
 
 ### 관찰 (2026-07-10, iteration 대상)
