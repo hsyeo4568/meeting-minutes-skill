@@ -32,27 +32,17 @@ At task start, in order:
 
 ## 1. Writing principles
 
-Apply `references/engine/writing-principles.md` before drafting any body text. Key points: context-linking is mandatory / no tables, use lists / segment terminology (`{{segments}}`) / always name the owner / include real data for cross-org requests / symptom-and-quantified headings / remove AI smell / cross-validate identifiers against source-of-truth / title, time, and emphasis formatting per medium.
-Writing style branches on `locale.business_style` (korean-gaejosik | plain | english) — korean-gaejosik is the Korean business convention option.
+Apply `references/engine/writing-principles.md` before drafting any body text — it owns the full rule set (context-linking, no-tables, segments, owner attribution, real data, symptom headings, AI-smell removal, cross-validation, per-medium formatting). Writing style branches on `locale.business_style` (korean-gaejosik | plain | english).
 
 ---
 
 ## 2. Pipeline (7 phases)
 
-Detail in `references/engine/pipeline.md`. Phase names are canonical in `references/engine/CONTRACT.md`.
+Full skeleton in `references/engine/pipeline.md`; canonical phase names in `references/engine/CONTRACT.md`. Phases 6.5 (topic sync) and 7 (knowledge-graph) are optional — omit entirely if the config key / tool is absent.
 
-1. Preprocess — text/PDF/audio (Whisper). Slides: python-pptx first.
-2. Speaker ID + clean — map speakers (`{{me}}`=self), strip filler words.
-3. Context-link + draft — Read last 1–2 weeks of minutes → link → body (writing-principles) → cross-validate identifiers.
-4. Per-category deliverables — apply config matrix (`references/engine/output-templates.md`).
-5. Share routing — share_md / canvas / gmail per category. Fall back to `.md` if tool unavailable.
-6. Canonical save — save to canonical repository (config.paths.vault — notes vault, document folder, wiki, etc.) with frontmatter (config.vault_frontmatter) → (optional) embed if indexer available.
-6.5. Topic sync (optional) — if `config.paths.topics_moc` exists: compare trigger keywords in the registry table against the minutes body → for matching topic notes, append one line to `## 타임라인` (`- **date** [[minutes]]: figure|hypothesis|decision` format, append-only) + update `last_updated` and MOC table. Rewrite `## 현재 상태` only for meetings where conclusions changed. For newly recurring topics (3+ appearances), propose creating a new note to the user — do not create automatically. Omit this phase entirely if the config key is absent.
-7. Knowledge-graph update (optional) — record decisions/relationships (via ontology skill interface only). Omit entirely if tool unavailable; not required for a valid run.
+> The canonical repository is the source of truth; work_folder outputs are copies. Daily meetings are often MD-first (user reviews/edits the work_folder MD) — let the category set the order.
 
-> The canonical repository is the source of truth. Outputs in work_folder are copies. For daily meetings, users often review and edit the work_folder MD themselves first (MD-first) — let the category determine the order.
-
-> **MD-first approval gate (required, all categories):** In turn 1, **generate the draft MD first in the work folder (the meeting folder the user provided)** → wait for user review and edits → **only after edits are incorporated and approval is given: save the canonical version (phase 6) + generate canvas/gmail (phase 5) — immediately after approval, re-Read the draft MD from disk and use only that re-Read version as the source (never regenerate from the in-context draft).** Do not push to vault at the draft stage. Do not produce everything in one turn. Canvas must be created only once (re-sharing requires a new canvas + updating the frontmatter canvas id). Detail in `references/engine/pipeline.md` + profile conventions `초안·정본 저장 순서`.
+> **MD-first approval gate (required, all categories):** draft MD in the work folder first → user review/edits → approval → **re-Read the draft from disk and use only that (never regenerate from the in-context draft — silent loss of user edits)** → phase 6 canonical save → phase 5 canvas/gmail. Never one turn; canvas once only (re-share = new canvas + update frontmatter canvas id). Full ordering + per-artifact re-Read obligation in `pipeline.md`; save order also in profile conventions `초안·정본 저장 순서`.
 
 ---
 
@@ -71,23 +61,18 @@ Detail in `references/engine/pipeline.md`. Phase names are canonical in `referen
 
 ## 4. Fallback / degradation
 
-Detail in `references/engine/tooling.md`. Summary: detect tools at boot → produce only available outputs. No Slack → output canvas as `.md` / no Gmail → output mail body as `.md` / no qmd → skip indexing / no ontology → skip phase 7 / no profile → skip cross-validation. Includes fallbacks for known bugs: no parallel canvas updates, `missing_scope`, `canvas_tab_creation_failed`, etc.
+Detail in `references/engine/tooling.md`. Boot: detect tools → produce only available outputs, **never fail on a missing tool** (every branch has a `.md` fallback). Known-bug fallbacks (no parallel canvas updates, `missing_scope`, `canvas_tab_creation_failed`) also in tooling.md.
 
 ---
 
 ## 5. Onboarding (new project / new team member)
 
-> **Full follow-along installation guide: `SETUP.md`** (required/recommended/optional tiers + troubleshooting). The below is a summary.
+> **Full install guide: `SETUP.md`** (required/recommended/optional tiers + troubleshooting).
 
-0. Environment: `pip install -r requirements.txt` → `python scripts/preflight.py` (must show READY).
-1. **Recommended — interview:** Run `/meeting-minutes` with no `config.yaml` → `ONBOARDING.md` interview asks **one question at a time** and auto-generates config + profile. Starts with "tell me about one meeting you have" rather than asking for a form upfront.
-2. (Manual alternative) Copy `config.example.yaml` → `config.yaml` and `profiles/_template/` → `profiles/<your-name>/`, then fill everything in. Replace all `<...>` values.
-3. `profiles/example-acme/` = a filled-in **sanitized example** — for reference on format only (not real data).
-4. **Validation (required before first run):**
-   - `python scripts/dry_run.py` → loads config + profile, detects unresolved blanks. Must show **PASS**.
-   - `bash verify.sh` → (when modifying the skill) engine purity + placeholder↔config gate.
-
-> All integrations (Slack/Gmail/qmd/ontology) are **fully optional** — if absent, outputs fall to `.md` (not a failure). Slack/qmd/ontology are bespoke local tools for the primary author; team members typically run without them. Detail in `SETUP.md` §3.
+- Environment: `pip install -r requirements.txt` → `python scripts/preflight.py` (must show READY).
+- No `config.yaml` → `/meeting-minutes` runs the `ONBOARDING.md` interview (one question at a time, auto-generates config + profile). Manual alternative: copy `config.example.yaml` + `profiles/_template/`, fill in all `<...>`. `profiles/example-acme/` = sanitized format reference.
+- Validate before first run: `python scripts/dry_run.py` (**PASS**) + `bash verify.sh` (when modifying the skill — engine purity + placeholder↔config).
+- All integrations (Slack/Gmail/qmd/ontology) are **optional** — absent → `.md` fallback, not a failure. Detail in `SETUP.md` §3.
 
 > Personal information (real contacts, customer names) goes in `config.yaml` and your own profile — both are `.gitignore`d. Only the engine, `_template`, and `example-acme` go into the shared repo.
 > **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) is currently **fixed in Korean**. `locale.language` / `business_style` affects the *prose style* guidance for body text, but output header i18n is not yet supported (English-language orgs need to replace the template strings directly). Known limitation.

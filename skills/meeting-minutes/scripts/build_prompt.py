@@ -50,6 +50,12 @@ def main():
 
     rules = (ENG / "writing-principles.md").read_text(encoding="utf-8")
     templ = (ENG / "output-templates.md").read_text(encoding="utf-8")
+    # Free-tier makes ONE share MD (no tools) — drop automation-only surfaces
+    # (canvas/gmail/vault). Keeps share_md + detail_md; the rest is Claude Code-only.
+    _cut = templ.find("\n## canvas")
+    if _cut != -1:
+        templ = templ[:_cut].rstrip() + (
+            "\n\n> canvas·gmail·vault 산출은 **Claude Code 전용** — 무료판은 위 공유 MD 1종만 생성.\n")
 
     out = f"""# 회의록 작성 프롬프트 (무료판 — 어떤 Claude 채팅에도 붙여넣기)
 

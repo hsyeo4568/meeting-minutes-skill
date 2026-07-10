@@ -59,7 +59,7 @@ Raw transcripts and sheets live under `{{work_folder}}`. The canonical store is 
 
 ## 6.5 Topic sync (optional)
 
-- Only when the `config.paths.topics_moc` key exists: compare the trigger keywords in the registry table against the meeting notes body → append 1 line to the `## 타임라인` section of each matched topic note (append-only) + update `last_updated` and the MOC table. If the key is absent, skip entirely. For details see SKILL.md §2 6.5.
+- Only when the `config.paths.topics_moc` key exists (skip entirely if absent). Compare the registry table's trigger keywords against the meeting body → for each matched topic note: append one line to `## 타임라인` (`- **date** [[minutes]]: figure|hypothesis|decision`, append-only) + update `last_updated` and the MOC table. Rewrite `## 현재 상태` only for meetings whose conclusions changed. For newly recurring topics (3+ appearances), propose creating a new note to the user — never auto-create.
 
 ## 7. Knowledge-graph update (optional)
 
