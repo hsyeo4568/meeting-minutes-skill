@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _utils as U
+from _utils import QUICK_SCAN_MIN_DENSITY
 
 SKILL_VERSION = "2.1"
 
@@ -103,8 +104,8 @@ def write_stamp(target: Path, glossary: Path) -> int:
     if stamp.exists():
         try:
             prev_hash = json.loads(stamp.read_text(encoding="utf-8")).get("file_sha256")
-        except Exception:
-            pass
+        except (ValueError, OSError) as e:
+            print(f"NOTE: prior stamp unreadable ({e}); skipping unchanged-file check")
 
     if prev_hash and prev_hash == cur_hash:
         print(f"WARNING: {target.name} — file unchanged since last stamp (stamping anyway)")
@@ -121,7 +122,7 @@ def write_stamp(target: Path, glossary: Path) -> int:
     return 0
 
 
-def quick_scan(target: Path, glossary: Path, threshold: float = 0.0003) -> int:
+def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_DENSITY) -> int:
     if not target.exists():
         print(f"ERROR: transcript not found: {target}")
         return 4
@@ -244,7 +245,7 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
                         total_hits += text.count(token)
 
         density = total_hits / max(len(text), 1)
-        if density < 0.0003:
+        if density < QUICK_SCAN_MIN_DENSITY:
             qs_skip += 1
             print(f"  [{pct}%] QS-SKIP: {f.name} (d={density:.4f})")
             continue
@@ -333,7 +334,7 @@ def main() -> int:
     if cmd == "migrate":
         return migrate_stamps(target, glossary)
     if cmd == "quick-scan":
-        return quick_scan(target, glossary, threshold=threshold or 0.0003)
+        return quick_scan(target, glossary, threshold=threshold or QUICK_SCAN_MIN_DENSITY)
     if dry_run and cmd == "check":
         return check_file(target, glossary, dry_run=True)
     if cmd == "check":

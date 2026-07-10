@@ -19,7 +19,7 @@ At startup, each key in `config.tools` (slack_mcp / gmail_mcp / qmd / ontology) 
 | ontology | Skip knowledge-graph update stage (phase 7, optional add-on) |
 | profile=null | Skip domain term/contact cross-validation → proceed with placeholder or user confirmation (Context-link) |
 
-Note: some environments have Gmail/Slack MCP planned for future deployment → treat as soft-required. Use if present, fall back to file if not.
+Note: Gmail/Slack MCP are soft-required — if present, use them; if absent, fall back to file output (mechanism above). Availability varies by environment; never treat their absence as a failure.
 
 ## Tool mechanics (when available)
 

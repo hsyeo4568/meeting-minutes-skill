@@ -7,6 +7,10 @@ from pathlib import Path
 
 _encoding_warned = set()
 
+# Single source of truth for quick-scan variant density threshold.
+# Conservative: false-positives (extra pass) OK, false-negatives not.
+QUICK_SCAN_MIN_DENSITY = 0.0003
+
 def detect_encoding(p: Path) -> str:
     """Detect file encoding. Handles BOM and bare UTF-16."""
     raw = p.read_bytes()
@@ -47,8 +51,8 @@ def acquire_lock(p: Path, timeout: int = 60) -> bool:
             if age > 600:  # 10 min stale → auto-clean
                 try:
                     lock.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except OSError as e:
+                    print(f"NOTE: stale lock cleanup failed ({e}); retrying acquire")
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
@@ -63,8 +67,8 @@ def release_lock(p: Path):
     lock = p.with_name(p.name + ".lock")
     try:
         lock.unlink(missing_ok=True)
-    except Exception:
-        pass
+    except OSError as e:
+        print(f"NOTE: lock release failed ({e}); leaving stale lock for auto-clean")
 
 
 def mask_comments(text: str):

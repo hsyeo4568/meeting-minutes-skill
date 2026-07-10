@@ -75,7 +75,7 @@ Detail in `references/engine/tooling.md`. Boot: detect tools → produce only av
 - All integrations (Slack/Gmail/qmd/ontology) are **optional** — absent → `.md` fallback, not a failure. Detail in `SETUP.md` §3.
 
 > Personal information (real contacts, customer names) goes in `config.yaml` and your own profile — both are `.gitignore`d. Only the engine, `_template`, and `example-acme` go into the shared repo.
-> **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) is currently **fixed in Korean**. `locale.language` / `business_style` affects the *prose style* guidance for body text, but output header i18n is not yet supported (English-language orgs need to replace the template strings directly). Known limitation.
+> **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) **defaults to Korean unless overridden**. `locale.language` / `business_style` drives the *prose style* guidance for body text; the header/label strings themselves come from the templates, so a non-Korean org overrides them directly in the profile/template strings (config gap, not a temporal limitation).
 
 ---
 

@@ -20,10 +20,12 @@ cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
 print(f"== config.yaml parsed OK — project={cfg['project']['name']} me={cfg['identity']['me']}")
 
 # 2. token -> config value map (mirrors CONTRACT.md vocabulary)
-def g(*ks):
-    v = cfg
-    for k in ks: v = v[k]
-    return v
+def dig(cfg, *keys):
+    """Nested-get: dig(cfg, 'identity', 'me') -> cfg['identity']['me']."""
+    for k in keys:
+        cfg = cfg[k]
+    return cfg
+g = lambda *ks: dig(cfg, *ks)
 TOKMAP = {
     "me": g("identity","me"), "org": g("identity","org"),
     "project_name": g("project","name"), "project_slug": g("project","slug"),

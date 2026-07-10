@@ -24,10 +24,16 @@ GENERIC = {
     "slack_user_id": "(해당없음)", "slack_url_base": "(해당없음)",
 }
 
+def dig(cfg, *keys):
+    """Nested-get: dig(cfg, 'identity', 'me') -> cfg['identity']['me']."""
+    for k in keys:
+        cfg = cfg[k]
+    return cfg
+
 def load_config(path):
     import yaml
     c = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
-    g = lambda *k: __import__("functools").reduce(lambda d, x: d[x], k, c)
+    g = lambda *k: dig(c, *k)
     return {
         "me": g("identity","me"), "org": g("identity","org"),
         "project_name": g("project","name"), "project_slug": g("project","slug"),

@@ -11,6 +11,7 @@ Options: --dry-run --force --json <file> --quick-scan --threshold N
 JSON: {"replacements": [["old","new",count],...], "markers": [[line,"txt"],...],
        "contextual": [...], "quick_scan": true, "min_variant_density": 0.0005}
 """
+import argparse
 import json
 import sys
 import shutil
@@ -19,8 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _utils as U
-
-QUICK_SCAN_MIN_DENSITY = 0.0003
+from _utils import QUICK_SCAN_MIN_DENSITY
 
 # --- AGENT FILLS IN ---
 REPLACEMENTS = []
@@ -33,117 +33,26 @@ def load_replacements(path: Path):
         return json.load(f)
 
 
-def main():
-    all_args = sys.argv[1:]
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        prog="fix_template.py",
+        description="Safe correction script for stt-transcript-fix.",
+    )
+    p.add_argument("transcript", help="transcript .txt to correct")
+    p.add_argument("--json", dest="json_file", metavar="FILE",
+                   help="JSON correction file (replacements/markers/contextual)")
+    p.add_argument("--threshold", type=float, default=QUICK_SCAN_MIN_DENSITY,
+                   metavar="N", help="quick-scan variant density threshold")
+    p.add_argument("--dry-run", action="store_true", help="show diff, no write")
+    p.add_argument("--force", action="store_true", help="apply despite count mismatch")
+    p.add_argument("--quick-scan", dest="quick_scan", action="store_true",
+                   help="density check only (0=skip, 1=proceed)")
+    p.add_argument("-V", "--version", action="version", version="fix_template v2.1")
+    return p.parse_args(argv)
 
-    if "--version" in all_args or "-V" in all_args:
-        print("fix_template v2.1")
-        return 0
 
-    dry_run = "--dry-run" in all_args
-    force = "--force" in all_args
-    quick_scan_only = "--quick-scan" in all_args
-
-    threshold = QUICK_SCAN_MIN_DENSITY
-    if "--threshold" in all_args:
-        idx = all_args.index("--threshold")
-        try:
-            threshold = float(all_args[idx + 1])
-        except (ValueError, IndexError):
-            pass
-
-    json_file = None
-    if "--json" in all_args:
-        idx = all_args.index("--json")
-        if idx + 1 < len(all_args):
-            json_file = Path(all_args[idx + 1])
-
-    positional = [a for a in all_args if not a.startswith("--")]
-    flags_set = set(a for a in all_args if a.startswith("--"))
-    for f in flags_set:
-        if f in positional:
-            positional.remove(f)
-
-    # Remove --threshold value from positional
-    filtered = []
-    skip_next = False
-    for a in positional:
-        if skip_next:
-            skip_next = False
-            continue
-        if a.startswith("--threshold"):
-            skip_next = True
-            continue
-        filtered.append(a)
-    positional = filtered
-
-    if not positional:
-        print("usage: fix_template.py <transcript> [--dry-run] [--force] [--json <file>] [--quick-scan] [--threshold N]")
-        sys.exit(1)
-
-    target_path = Path(positional[0])
-    if not target_path.exists():
-        print(f"ERROR: file not found: {target_path}")
-        sys.exit(1)
-
-    enc = U.detect_encoding(target_path)
-    # newline="" preserves original line endings (no universal-newline translation)
-    with open(target_path, "r", encoding=enc, newline="") as f:
-        original = f.read()
-
-    # Load correction data
-    reps = list(REPLACEMENTS)
-    markers_list = list(MARKERS)
-    ctx = list(CONTEXTUAL)
-    qs_enabled = False
-    min_dens = threshold
-
-    if json_file and json_file.exists():
-        data = load_replacements(json_file)
-        reps = data.get("replacements", [])
-        markers_list = data.get("markers", [])
-        ctx = data.get("contextual", [])
-        qs_enabled = data.get("quick_scan", False)
-        min_dens = data.get("min_variant_density", threshold)
-
-    all_rep = reps + ctx
-
-    # Quick-scan
-    if quick_scan_only or qs_enabled:
-        masked, _ = U.mask_comments(original)
-        if not U.quick_scan_variants(masked, all_rep, min_dens):
-            print(f"QUICK-SCAN SKIP: low density — no corrections needed")
-            return 0
-        if quick_scan_only:
-            print("QUICK-SCAN PASS: warrants full correction")
-            return 1
-
-    if not all_rep and not markers_list:
-        print("NOTE: no replacements or markers specified")
-        return 0
-
-    # Lock
-    if not U.acquire_lock(target_path):
-        print(f"ERROR: could not lock {target_path.name}")
-        sys.exit(1)
-
-    original_lines = original.splitlines()
-    le = U.detect_line_ending(original)
-
-    # Backup
-    bak_path = target_path.with_suffix(target_path.suffix + ".bak")
-    if not dry_run:
-        shutil.copy2(target_path, bak_path)
-
-    # Mask comments
-    masked, spans = U.mask_comments(original)
-
-    # Log substring-risky pairs
-    for old_str, new_str, _ in all_rep:
-        if U.is_substring_risky(old_str, new_str):
-            print(f"  NOTE: substring-risky '{old_str}'↔'{new_str}' — using word-boundary regex")
-
-    # Verify counts
+def verify_counts(masked, reps, ctx, force):
+    """Verify variant counts match. Returns True if a HALT-worthy mismatch exists."""
     failed = False
     for old_str, new_str, expected in reps:
         actual = U.count_variant(masked, old_str, new_str)
@@ -162,13 +71,11 @@ def main():
         print(f"  {tag}: '{old_str}' x{actual} (expected={expected})")
         if actual != expected and not force:
             failed = True
+    return failed
 
-    if failed:
-        print("HALT: count mismatches")
-        U.release_lock(target_path)
-        sys.exit(1)
 
-    # Apply replacements
+def apply_corrections(masked, spans, reps, ctx, markers_list, original, le):
+    """Apply replacements, restore comments, then insert markers. Returns new text."""
     changed = masked
     for old_str, new_str, _ in reps:
         changed = U.safe_replace(changed, old_str, new_str)
@@ -196,12 +103,112 @@ def main():
                 else:
                     print(f"  MARKER DUP: L{line_num} already has")
         changed = (le.join(lines)) + (le if original.endswith(le) else "")
+    return changed
+
+
+def write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list):
+    """Atomic write via temp (preserves original on crash; restores .bak on error)."""
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="fix_", dir=target_path.parent)
+        # encoding=enc + newline="" preserve original encoding and line endings
+        with open(fd, "w", encoding=enc, newline="") as f:
+            f.write(changed)
+        Path(tmp_path).replace(target_path)
+        print(f"DONE: {len(reps)}+{len(ctx)} replacements, {len(markers_list)} markers")
+        if tmp_path and Path(tmp_path).exists():
+            Path(tmp_path).unlink(missing_ok=True)
+    except OSError:
+        if tmp_path and Path(tmp_path).exists():
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError as e:
+                print(f"NOTE: temp cleanup failed ({e})")
+        shutil.copy2(bak_path, target_path)
+        print("ERROR during write — RESTORED from .bak")
+        raise
+
+
+def main():
+    args = parse_args()
+
+    target_path = Path(args.transcript)
+    if not target_path.exists():
+        print(f"ERROR: file not found: {target_path}")
+        sys.exit(1)
+
+    enc = U.detect_encoding(target_path)
+    # newline="" preserves original line endings (no universal-newline translation)
+    with open(target_path, "r", encoding=enc, newline="") as f:
+        original = f.read()
+
+    # Load correction data
+    reps = list(REPLACEMENTS)
+    markers_list = list(MARKERS)
+    ctx = list(CONTEXTUAL)
+    qs_enabled = False
+    min_dens = args.threshold
+
+    json_file = Path(args.json_file) if args.json_file else None
+    if json_file and json_file.exists():
+        data = load_replacements(json_file)
+        reps = data.get("replacements", [])
+        markers_list = data.get("markers", [])
+        ctx = data.get("contextual", [])
+        qs_enabled = data.get("quick_scan", False)
+        min_dens = data.get("min_variant_density", args.threshold)
+
+    all_rep = reps + ctx
+
+    # Quick-scan
+    if args.quick_scan or qs_enabled:
+        masked, _ = U.mask_comments(original)
+        if not U.quick_scan_variants(masked, all_rep, min_dens):
+            print(f"QUICK-SCAN SKIP: low density — no corrections needed")
+            return 0
+        if args.quick_scan:
+            print("QUICK-SCAN PASS: warrants full correction")
+            return 1
+
+    if not all_rep and not markers_list:
+        print("NOTE: no replacements or markers specified")
+        return 0
+
+    # Lock
+    if not U.acquire_lock(target_path):
+        print(f"ERROR: could not lock {target_path.name}")
+        sys.exit(1)
+
+    original_lines = original.splitlines()
+    le = U.detect_line_ending(original)
+
+    # Backup
+    bak_path = target_path.with_suffix(target_path.suffix + ".bak")
+    if not args.dry_run:
+        shutil.copy2(target_path, bak_path)
+
+    # Mask comments
+    masked, spans = U.mask_comments(original)
+
+    # Log substring-risky pairs
+    for old_str, new_str, _ in all_rep:
+        if U.is_substring_risky(old_str, new_str):
+            print(f"  NOTE: substring-risky '{old_str}'↔'{new_str}' — using word-boundary regex")
+
+    # Verify counts
+    if verify_counts(masked, reps, ctx, args.force):
+        print("HALT: count mismatches")
+        U.release_lock(target_path)
+        sys.exit(1)
+
+    # Apply corrections + markers
+    changed = apply_corrections(masked, spans, reps, ctx, markers_list, original, le)
 
     # Verify line count
     new_lines = changed.splitlines()
     if len(new_lines) != len(original_lines):
         print(f"LINE MISMATCH: {len(original_lines)} → {len(new_lines)}")
-        if not dry_run:
+        if not args.dry_run:
             shutil.copy2(bak_path, target_path)
             print("RESTORED from .bak")
         U.release_lock(target_path)
@@ -209,32 +216,13 @@ def main():
     print(f"Lines OK: {len(new_lines)}")
 
     # Output
-    if dry_run:
+    if args.dry_run:
         diffs = U.compute_line_diff(original, changed)
         print(f"\nDRY-RUN: {len(reps)} sets + {len(ctx)} ctx + {len(markers_list)} markers")
         for d in diffs:
             print(d)
     else:
-        # Atomic write via temp (preserves original on crash)
-        tmp_path = None
-        try:
-            fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="fix_", dir=target_path.parent)
-            # encoding=enc + newline="" preserve original encoding and line endings
-            with open(fd, "w", encoding=enc, newline="") as f:
-                f.write(changed)
-            Path(tmp_path).replace(target_path)
-            print(f"DONE: {len(reps)}+{len(ctx)} replacements, {len(markers_list)} markers")
-            if 'tmp_path' in dir() and tmp_path and Path(tmp_path).exists():
-                Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            if tmp_path and Path(tmp_path).exists():
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            shutil.copy2(bak_path, target_path)
-            print("ERROR during write — RESTORED from .bak")
-            raise
+        write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list)
 
 
 if __name__ == "__main__":

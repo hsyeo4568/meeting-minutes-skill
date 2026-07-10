@@ -138,6 +138,15 @@
 
 The `categories` matrix in config decides which of these a given meeting emits.
 
+Deliverable templates in this file:
+- [`share_md`](#share_md) — plain-text team-chat share copy
+- [`detail_md`](#detail_md) — full working-folder copy (source of truth for vault)
+- [`canvas`](#canvas) — periodic / workshop review surface
+- [`gmail`](#gmail) — meeting-minutes mail draft
+- [`vault`](#vault) — authoritative copy
+
+> Title/label + honorific notation across ALL blocks: the active **profile `structure.md` §산출물 제목** is the single authority — templates here show neutral illustrations only.
+
 ---
 
 ## share_md — plain-text team-chat share copy (e.g. Teams)
