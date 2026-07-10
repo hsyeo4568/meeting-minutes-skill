@@ -164,6 +164,36 @@ def quick_scan(target: Path, glossary: Path, threshold: float = 0.0003) -> int:
     return 1
 
 
+def print_sections(glossary: Path) -> int:
+    """Print only the correction-relevant glossary sections (§1 table, §7 people,
+    §8 ownership) to stdout — lets the agent load evidence without Read-ing the
+    whole file (§2-6/§9-10 are context-only per SKILL, ~38% of the file)."""
+    if not glossary.exists():
+        print(f"ERROR: glossary not found: {glossary}")
+        return 4
+    t = glossary.read_text(encoding="utf-8")
+
+    def slice_section(start_marker: str, end_marker: str) -> str:
+        i = t.find(start_marker)
+        if i < 0:
+            return ""
+        j = t.find(end_marker, i + 1) if end_marker else len(t)
+        if j < 0:
+            j = len(t)
+        return t[i:j].rstrip()
+
+    out = []
+    for sm, em in (("## 1.", "## 2."), ("## 7.", "## 8."), ("## 8.", "## 9.")):
+        seg = slice_section(sm, em)
+        if seg:
+            out.append(seg)
+    if not out:
+        print("ERROR: no §1/§7/§8 sections found — glossary format changed; Read the file directly")
+        return 4
+    print("\n\n".join(out))
+    return 0
+
+
 def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
     if not folder.is_dir():
         print(f"ERROR: not a directory: {folder}")
@@ -274,15 +304,24 @@ def main() -> int:
             print("ERROR: --threshold requires a float value")
             return 4
 
+    # sections: cmd + glossary only (2 args) — print §1/§7/§8 to stdout
+    if args and args[0] == "sections":
+        if len(args) < 2:
+            print("usage: fixstamp.py sections <glossary.md>")
+            return 4
+        return print_sections(Path(args[1]))
+
     if len(args) < 3 or args[0] not in ("check", "write", "batch", "quick-scan", "migrate"):
         print(
             "fixstamp v" + SKILL_VERSION + "\n"
             "usage: fixstamp.py check|write|batch|quick-scan|migrate [--dry-run] [--threshold N] <target> <glossary.md>\n"
+            "       fixstamp.py sections <glossary.md>\n"
             "  check:      exit 0=skip 1=new 2=file-changed 3=version/glossary-changed 4=error\n"
             "  write:      record hashes after correction (verifies modification)\n"
             "  batch:      folder check with quick-scan pre-filter + progress\n"
             "  quick-scan: rapid variant density check\n"
             "  migrate:    re-stamp all .fixstamp files in folder to current version\n"
+            "  sections:   print correction-relevant glossary sections (§1/§7/§8) only\n"
             "  --version:  print version and exit"
         )
         return 4
