@@ -87,7 +87,8 @@ def main():
         sys.exit(1)
 
     enc = U.detect_encoding(target_path)
-    with open(target_path, "r", encoding=enc) as f:
+    # newline="" preserves original line endings (no universal-newline translation)
+    with open(target_path, "r", encoding=enc, newline="") as f:
         original = f.read()
 
     # Load correction data
@@ -145,7 +146,7 @@ def main():
     # Verify counts
     failed = False
     for old_str, new_str, expected in reps:
-        actual = masked.count(old_str)
+        actual = U.count_variant(masked, old_str, new_str)
         if actual != expected:
             if force:
                 print(f"  FORCE: '{old_str}' expected={expected} actual={actual}")
@@ -156,7 +157,7 @@ def main():
             print(f"  OK: '{old_str}' x{actual}")
 
     for old_str, new_str, expected in ctx:
-        actual = masked.count(old_str)
+        actual = U.count_variant(masked, old_str, new_str)
         tag = "CTX OK" if actual == expected else "CTX WARN"
         print(f"  {tag}: '{old_str}' x{actual} (expected={expected})")
         if actual != expected and not force:
@@ -172,7 +173,7 @@ def main():
     for old_str, new_str, _ in reps:
         changed = U.safe_replace(changed, old_str, new_str)
     for old_str, new_str, expected in ctx:
-        if changed.count(old_str) == expected:
+        if U.count_variant(changed, old_str, new_str) == expected:
             changed = U.safe_replace(changed, old_str, new_str)
 
     # Restore comments
@@ -218,7 +219,8 @@ def main():
         tmp_path = None
         try:
             fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="fix_", dir=target_path.parent)
-            with open(fd, "w", encoding="utf-8", newline="") as f:
+            # encoding=enc + newline="" preserve original encoding and line endings
+            with open(fd, "w", encoding=enc, newline="") as f:
                 f.write(changed)
             Path(tmp_path).replace(target_path)
             print(f"DONE: {len(reps)}+{len(ctx)} replacements, {len(markers_list)} markers")

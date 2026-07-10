@@ -118,6 +118,17 @@ def safe_replace(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
+def count_variant(text: str, old: str, new: str) -> int:
+    """Count occurrences the way safe_replace would actually replace them.
+    Word-boundary count when substring-risky, else plain count. Keeps the
+    verify gate honest: reported count == count that will be replaced."""
+    if is_substring_risky(old, new):
+        import re
+        pattern = r'(?<![가-힣㐀-䶿a-zA-Z0-9])' + re.escape(old) + r'(?![가-힣㐀-䶿a-zA-Z0-9])'
+        return len(get_cached_regex(pattern).findall(text))
+    return text.count(old)
+
+
 def compute_line_diff(original: str, changed: str) -> list[str]:
     """Return list of changed line descriptions. Handles unequal line counts."""
     orig_lines = original.splitlines()
@@ -146,8 +157,9 @@ def quick_scan_variants(text: str, variants: list, min_density: float) -> bool:
 # Re-export for external use
 __all__ = [
     'detect_encoding', 'detect_line_ending', 'acquire_lock', 'release_lock',
-    'mask_comments', 'is_substring_risky', 'safe_replace', 'compute_line_diff',
-    'quick_scan_variants', 'get_cached_regex', 'glossary_variants_cache'
+    'mask_comments', 'is_substring_risky', 'safe_replace', 'count_variant',
+    'compute_line_diff', 'quick_scan_variants', 'get_cached_regex',
+    'glossary_variants_cache'
 ]
 
 # === Performance caches ===
