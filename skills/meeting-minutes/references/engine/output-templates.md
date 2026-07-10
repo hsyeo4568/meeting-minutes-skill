@@ -72,8 +72,6 @@ Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error co
 (same structure as share_md, but internal mentions included)
 ```
 
-share_md = derive from this detailed copy by removing internal mentions and compressing to one-line summaries.
-
 ---
 
 ## canvas — periodic / workshop review surface

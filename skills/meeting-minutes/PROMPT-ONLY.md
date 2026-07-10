@@ -27,7 +27,7 @@
 
 > Methodology applied when composing meeting minutes body content. All proper nouns, paths, and concrete values use placeholders or neutral examples.
 > Style rules branch on a locale condition (`korean-gaejosik`) — culture-specific writing conventions are not imposed as universal rules.
-> **This file covers only universal writing hygiene, independent of meeting type.** Form (section order, categories, Action grouping, title rules, type-specific rules) is determined by **profile `structure.md`** — if absent, infer structure from transcript and confirm with user (`ONBOARDING.md`/`PROMPT-ONLY.md`). §3, §5, §6, and §9 below are weighted toward *operational meeting examples*; if they don't fit the meeting type, follow structure.md instead.
+> **This file covers only universal writing hygiene, independent of meeting type.** Meeting *form* (section order, categories, Action grouping, titles) belongs to profile `structure.md` (see §Section Order below). §3/§5/§6/§9 lean on *operational-meeting examples* — if they don't fit the meeting type, follow structure.md.
 
 ## 1. Context Linking (context-link)
 
@@ -203,8 +203,6 @@ Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error co
 ## Action Items
 (same structure as share_md, but internal mentions included)
 ```
-
-share_md = derive from this detailed copy by removing internal mentions and compressing to one-line summaries.
 
 ---
 

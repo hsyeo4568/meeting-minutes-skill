@@ -76,7 +76,7 @@ python scripts/dry_run.py              # config·profile 검증 → PASS 떠야 
 | **ontology (지식그래프)** | 결정사항 그래프 기록 | bespoke 로컬 도구. 없으면 phase 7 통째 생략 |
 | **Whisper (오디오 STT)** | 녹음파일 → 텍스트 | `pip install openai-whisper`(torch라 큼). 텍스트/PDF만 쓰면 불필요 |
 
-> Slack/qmd/ontology는 작성자 환경 전용 커스텀 서버다. 팀원 배포 시 **그대로 옮겨오기 어려움** → 그냥 없이 쓰고 `.md` 산출물을 수동 공유하는 게 기본 경로. config.tools에서 `off`로 둬도 됨.
+> 팀원 기본 경로 = Slack/qmd/ontology 없이 `.md` 산출물 수동 공유 (작성자 전용 로컬 서버라 이식 어려움). `config.tools`에서 `off` 가능.
 
 ---
 
