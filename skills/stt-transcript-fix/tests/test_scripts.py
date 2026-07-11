@@ -14,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import _utils as U  # noqa: E402
 import fix_template as FT  # noqa: E402
+import fixstamp as FS  # noqa: E402
 
 FIX_TEMPLATE = SCRIPTS / "fix_template.py"
 
@@ -22,6 +23,18 @@ def run_fix(args, timeout=60):
     env = dict(os.environ, PYTHONUTF8="1")
     return subprocess.run(
         [sys.executable, str(FIX_TEMPLATE), *[str(a) for a in args]],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, timeout=timeout,
+    )
+
+
+FIXSTAMP = SCRIPTS / "fixstamp.py"
+
+
+def run_fixstamp(args, timeout=60):
+    env = dict(os.environ, PYTHONUTF8="1")
+    return subprocess.run(
+        [sys.executable, str(FIXSTAMP), *[str(a) for a in args]],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         env=env, timeout=timeout,
     )
@@ -102,6 +115,39 @@ def test_mask_comments_over_200_chars_cut_with_warning(capsys):
     assert restored == text
 
 
+def test_mask_comments_200_char_cut_tight(capsys):
+    """Document exact cut semantics for the > 200 guard.
+
+    The guard fires after j += 1 on a non-closing char, so it fires when the scanned
+    distance from (* is 201, capturing at most 202 chars in the span
+    (the `(*` prefix + up to 200 body chars).  A legitimate (*body) where
+    body is exactly 198 chars (total span 201) closes normally before the guard
+    can fire.
+
+    Finding #2 analysis: the warning says "exceeds 200 chars" and the guard
+    condition `j - i > 200` fires when distance == 201, allowing spans up to 202
+    chars.  This is the intended conservative behaviour — a body of 200 chars
+    IS cut (span ≤ 202), but a body of 198 chars + `)` closes cleanly.
+    """
+    # 198-char body + closing `)` = 201-char span: closes before guard fires.
+    body_ok = "b" * 198
+    text_ok = "(*" + body_ok + ")"
+    masked_ok, spans_ok = U.mask_comments(text_ok)
+    capsys.readouterr()  # discard any incidental output
+    assert len(spans_ok) == 1
+    assert spans_ok[0][1] == text_ok  # fully captured, no cut
+
+    # 200-char body with no closing `)`: guard MUST fire, span ≤ 202 chars.
+    body_cut = "c" * 200
+    text_cut = "(*" + body_cut  # deliberately unclosed
+    masked_cut, spans_cut = U.mask_comments(text_cut)
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "200" in out
+    assert len(spans_cut) == 1
+    # `> 200` fires when j-i == 201; span is text[i:j] ≤ 202 chars.
+    assert len(spans_cut[0][1]) <= 202
+
+
 def test_mask_comments_no_markers_unchanged():
     text = "일반 텍스트 (그냥 괄호) 포함\n둘째 줄"
     masked, spans = U.mask_comments(text)
@@ -157,6 +203,35 @@ def test_count_variant_parity_non_risky():
 
 
 # =========================================================================
+# 2b. quick_scan_variants >= count_variant for risky pairs (Finding #5)
+# =========================================================================
+
+def test_quick_scan_at_least_count_variant_for_risky_pair():
+    """quick_scan_variants uses plain text.count() (over-counts risky pairs).
+
+    For a substring-risky pair, quick_scan_variants must count >= count_variant.
+    This is deliberate: false-positives (extra passes) are acceptable; false-negatives
+    (skipped files with actual variants) are not.
+    """
+    old, new = "피던스", "임피던스"
+    assert U.is_substring_of_either(old, new), "precondition: pair must be risky"
+
+    # Text has 2 standalone occurrences and 1 embedded in 임피던스 (not a real variant).
+    text = "피던스 확인 임피던스 유지 피던스 재측정"
+
+    qs_count = sum(text.count(o) for o, _, _ in [(old, new, 0)])
+    cv_count = U.count_variant(text, old, new)
+
+    # quick_scan counts the plain occurrences (includes the embedded one inside 임피던스).
+    assert qs_count >= cv_count, (
+        f"quick_scan ({qs_count}) must be >= count_variant ({cv_count}) for risky pairs"
+    )
+    # Sanity: word-boundary count_variant is strictly less (it excludes the embedded hit).
+    assert cv_count == 2
+    assert qs_count == 3  # plain count includes "피던스" inside "임피던스"
+
+
+# =========================================================================
 # 3. verify_counts
 # =========================================================================
 
@@ -186,7 +261,8 @@ def test_apply_corrections_replaces_and_restores_spans_verbatim():
     original = "피던스 문제 발생 (*피던스 원문 유지)\n다음 줄\n"
     masked, spans = U.mask_comments(original)
     reps = [["피던스", "임피던스", 1]]
-    changed = FT.apply_corrections(masked, spans, reps, [], [], original, "\n")
+    cs = FT.CorrectionSet(reps=reps, ctx=[], markers=[], spans=spans)
+    changed = FT.apply_corrections(masked, cs, original, "\n")
     # replacement applied outside the comment
     assert changed.startswith("임피던스 문제 발생")
     # comment span restored verbatim (variant inside NOT corrected)
@@ -199,7 +275,8 @@ def test_apply_corrections_markers_speaker_skip_and_dedup(capsys):
     original = "06:12 발표자 발언 내용\n일반 내용 줄\n이미 표시된 줄 (*확인)\n"
     masked, spans = U.mask_comments(original)
     markers = [(1, "(*마커1)"), (2, "(*마커2)"), (3, "(*확인)")]
-    changed = FT.apply_corrections(masked, spans, [], [], markers, original, "\n")
+    cs = FT.CorrectionSet(reps=[], ctx=[], markers=markers, spans=spans)
+    changed = FT.apply_corrections(masked, cs, original, "\n")
     out = capsys.readouterr().out
     lines = changed.splitlines()
     # L1 speaker header — skipped
@@ -342,3 +419,279 @@ def test_quick_scan_density_below_threshold():
     text = "정상적인 회의 내용 반복 " * 500
     variants = [("피던스", "임피던스", 0)]
     assert U.quick_scan_variants(text, variants, U.QUICK_SCAN_MIN_DENSITY) is False
+
+
+# =========================================================================
+# 11. fixstamp CLI — --dry-run accepted in BOTH positions (SKILL.md contract)
+# =========================================================================
+# SKILL.md documents `fixstamp.py check <t> <g>` with `--dry-run` as status-only.
+# Regression guard: the argparse rewrite must accept --dry-run AFTER the
+# subcommand (documented form) as well as before it.
+
+def _make_cli_fixture(tmp_path):
+    target = tmp_path / "cli.txt"
+    target.write_text("00:01 화자\n피던스 측정\n", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. 교정\n임피던스 ← 피던스\n## 2. x\n", encoding="utf-8")
+    return target, glossary
+
+
+def test_fixstamp_dry_run_flag_after_subcommand(tmp_path):
+    target, glossary = _make_cli_fixture(tmp_path)
+    r = run_fixstamp(["check", target, glossary, "--dry-run"])
+    assert r.returncode == 1, r.stderr          # new file (no stamp)
+    assert "DRY-RUN" in r.stdout
+    assert "unrecognized arguments" not in r.stderr
+
+
+def test_fixstamp_dry_run_flag_before_subcommand(tmp_path):
+    target, glossary = _make_cli_fixture(tmp_path)
+    r = run_fixstamp(["--dry-run", "check", target, glossary])
+    assert r.returncode == 1, r.stderr
+    assert "DRY-RUN" in r.stdout
+
+
+def test_fixstamp_dry_run_does_not_write_stamp(tmp_path):
+    target, glossary = _make_cli_fixture(tmp_path)
+    run_fixstamp(["check", target, glossary, "--dry-run"])
+    assert not target.with_name(target.name + ".fixstamp").exists()
+
+
+# =========================================================================
+# 9. fixstamp.write_stamp — lock leak regression
+# =========================================================================
+
+def test_write_stamp_releases_lock_when_write_fails(tmp_path, monkeypatch):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "glossary.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    lock = target.with_name(target.name + ".lock")
+
+    orig_write_text = Path.write_text
+
+    def boom(self, *a, **k):
+        if self.name.endswith(".fixstamp"):
+            raise OSError("disk full")
+        return orig_write_text(self, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", boom)
+
+    with pytest.raises(OSError):
+        FS.write_stamp(target, glossary)
+
+    assert not lock.exists()  # finally must release even on write failure
+
+
+# =========================================================================
+# 10. fixstamp.extract_section — DRY single source of truth for §-slicing
+# =========================================================================
+
+def test_extract_section_returns_marker_inclusive_body():
+    text = "## 1. tbl\na←b\n## 2. next\n"
+    assert FS.extract_section(text, "## 1.", "## 2.") == "## 1. tbl\na←b"
+
+
+def test_extract_section_empty_when_start_absent():
+    assert FS.extract_section("no markers here", "## 1.", "## 2.") == ""
+
+
+def test_extract_section_to_eof_when_end_absent():
+    assert FS.extract_section("## 1. only\nrest", "## 1.", "## 2.") == "## 1. only\nrest"
+
+
+def test_extract_section_default_end_is_eof():
+    assert FS.extract_section("## 1. x\ny", "## 1.") == "## 1. x\ny"
+
+
+def test_quick_scan_header_line_not_counted(tmp_path):
+    # §1 header "## 1. STT 교정표" is now included in the slice; it must NOT inflate hits
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT 교정표\n임피던스 ← 피던스\n## 2. 기타\n", encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text("피던스 " * 40, encoding="utf-8")  # high density of the variant
+    assert FS.quick_scan(target, glossary, threshold=0.0001) == 1  # proceed
+
+
+# =========================================================================
+# 11. fixstamp.check_file decision paths (#11 _decide helper)
+# =========================================================================
+
+def _make_stamp(target: Path, glossary: Path, *, version=FS.SKILL_VERSION):
+    """Write a .fixstamp sidecar for target using real sha256 values."""
+    import hashlib
+    data = {
+        "file_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        "glossary_sha256": hashlib.sha256(glossary.read_bytes()).hexdigest(),
+        "skill_version": version,
+    }
+    stamp = target.with_name(target.name + ".fixstamp")
+    stamp.write_text(json.dumps(data), encoding="utf-8")
+    return stamp
+
+
+def test_check_file_skip_when_unchanged(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    _make_stamp(target, glossary)
+    assert FS.check_file(target, glossary) == 0
+    assert "SKIP" in capsys.readouterr().out
+
+
+def test_check_file_new_when_no_stamp(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    assert FS.check_file(target, glossary) == 1
+    assert "new file" in capsys.readouterr().out
+
+
+def test_check_file_file_changed(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("원본 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    _make_stamp(target, glossary)
+    target.write_text("수정된 내용", encoding="utf-8")  # modify after stamp
+    assert FS.check_file(target, glossary) == 2
+    assert "file changed" in capsys.readouterr().out
+
+
+def test_check_file_glossary_changed(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# original glossary", encoding="utf-8")
+    _make_stamp(target, glossary)
+    glossary.write_text("# updated glossary", encoding="utf-8")  # change glossary
+    assert FS.check_file(target, glossary) == 3
+    assert "glossary changed" in capsys.readouterr().out
+
+
+def test_check_file_version_changed(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    _make_stamp(target, glossary, version="1.0")  # old version
+    assert FS.check_file(target, glossary) == 3
+    assert "skill v1.0" in capsys.readouterr().out
+
+
+def test_check_file_dry_run_prefix(tmp_path, capsys):
+    target = tmp_path / "t.txt"
+    target.write_text("녹취 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    assert FS.check_file(target, glossary, dry_run=True) == 1
+    assert "DRY-RUN" in capsys.readouterr().out
+
+
+def test_check_file_missing_target_returns_4(tmp_path, capsys):
+    assert FS.check_file(tmp_path / "missing.txt", tmp_path / "g.md") == 4
+    assert "ERROR" in capsys.readouterr().out
+
+
+# =========================================================================
+# 12. fixstamp.batch_check — happy path and empty folder (#13)
+# =========================================================================
+
+def test_batch_check_empty_folder(tmp_path, capsys):
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT\na ← b\n## 2. end\n", encoding="utf-8")
+    result = FS.batch_check(tmp_path, glossary)
+    assert result == 0
+    assert "No .txt files" in capsys.readouterr().out
+
+
+def test_batch_check_all_new_returns_1(tmp_path, capsys):
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT\n규정 ← 구정\n## 2. end\n", encoding="utf-8")
+    (tmp_path / "a.txt").write_text("구정 내용이 있는 녹취 파일 " * 20, encoding="utf-8")
+    result = FS.batch_check(tmp_path, glossary)
+    out = capsys.readouterr().out
+    assert result == 1  # has new files
+    assert "SUMMARY" in out
+
+
+def test_batch_check_all_stamped_returns_0(tmp_path, capsys):
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT\n규정 ← 구정\n## 2. end\n", encoding="utf-8")
+    target = tmp_path / "a.txt"
+    target.write_text("정상 내용 반복 " * 200, encoding="utf-8")
+    _make_stamp(target, glossary)
+    result = FS.batch_check(tmp_path, glossary)
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "SUMMARY" in out
+
+
+# =========================================================================
+# 13. fixstamp.main argparse routing (#13)
+# =========================================================================
+
+FIXSTAMP = Path(__file__).resolve().parent.parent / "scripts" / "fixstamp.py"
+
+
+def run_stamp(args, timeout=60):
+    env = dict(os.environ, PYTHONUTF8="1")
+    return subprocess.run(
+        [sys.executable, str(FIXSTAMP), *[str(a) for a in args]],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, timeout=timeout,
+    )
+
+
+def test_main_version_flag():
+    r = run_stamp(["--version"])
+    assert r.returncode == 0
+    assert "fixstamp" in r.stdout and FS.SKILL_VERSION in r.stdout
+
+
+def test_main_no_args_returns_4():
+    r = run_stamp([])
+    assert r.returncode == 4
+
+
+def test_main_sections_routing(tmp_path):
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT\na ← b\n## 2. end\n", encoding="utf-8")
+    r = run_stamp(["sections", str(glossary)])
+    assert r.returncode == 0
+    assert "## 1." in r.stdout
+
+
+def test_main_check_routing_new_file(tmp_path):
+    target = tmp_path / "t.txt"
+    target.write_text("내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# g", encoding="utf-8")
+    r = run_stamp(["check", str(target), str(glossary)])
+    assert r.returncode == 1
+    assert "new file" in r.stdout
+
+
+def test_main_check_dry_run(tmp_path):
+    target = tmp_path / "t.txt"
+    target.write_text("내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# g", encoding="utf-8")
+    r = run_stamp(["--dry-run", "check", str(target), str(glossary)])
+    assert r.returncode == 1
+    assert "DRY-RUN" in r.stdout
+
+
+def test_main_write_then_check_skip(tmp_path):
+    target = tmp_path / "t.txt"
+    target.write_text("내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# g", encoding="utf-8")
+    r_write = run_stamp(["write", str(target), str(glossary)])
+    assert r_write.returncode == 0
+    assert "STAMPED" in r_write.stdout
+    r_check = run_stamp(["check", str(target), str(glossary)])
+    assert r_check.returncode == 0
+    assert "SKIP" in r_check.stdout

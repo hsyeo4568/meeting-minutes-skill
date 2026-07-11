@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Shared utilities for stt-transcript-fix scripts."""
+import contextlib
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -8,16 +10,18 @@ from pathlib import Path
 # Windows cp949 console: warnings/notes contain em-dash/Korean — force UTF-8 stdout
 # (guarded: stdout may be None under pythonw / detached tasks).
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    try:
+    with contextlib.suppress(OSError, ValueError):  # non-fatal: may mojibake but never crash
         sys.stdout.reconfigure(encoding="utf-8")
-    except (OSError, ValueError) as _e:
-        pass  # non-fatal: prints may mojibake but never crash correction runs
 
 _encoding_warned = set()
 
 # Single source of truth for quick-scan variant density threshold.
 # Conservative: false-positives (extra pass) OK, false-negatives not.
 QUICK_SCAN_MIN_DENSITY = 0.0003
+
+# Stale-lock threshold in seconds (10 minutes).
+_LOCK_STALE_SECONDS = 600
+
 
 def detect_encoding(p: Path) -> str:
     """Detect file encoding. Handles BOM and bare UTF-16."""
@@ -43,7 +47,7 @@ def detect_encoding(p: Path) -> str:
 
 
 def detect_line_ending(text: str) -> str:
-    """Detect line ending style. Returns '\r\n' or '\n'."""
+    """Detect line ending style. Returns '\\r\\n' or '\\n'."""
     if '\r\n' in text:
         return '\r\n'
     return '\n'
@@ -56,7 +60,7 @@ def acquire_lock(p: Path, timeout: int = 60) -> bool:
     while time.time() < deadline:
         if lock.exists():
             age = time.time() - os.path.getmtime(str(lock))
-            if age > 600:  # 10 min stale → auto-clean
+            if age > _LOCK_STALE_SECONDS:
                 try:
                     lock.unlink(missing_ok=True)
                 except OSError as e:
@@ -70,7 +74,7 @@ def acquire_lock(p: Path, timeout: int = 60) -> bool:
     return False
 
 
-def release_lock(p: Path):
+def release_lock(p: Path) -> None:
     """Release lockfile."""
     lock = p.with_name(p.name + ".lock")
     try:
@@ -116,15 +120,18 @@ def mask_comments(text: str):
     return "".join(result), spans
 
 
-def is_substring_risky(old: str, new: str) -> bool:
+def is_substring_of_either(old: str, new: str) -> bool:
     """True if old is a substring of new or vice versa."""
     return old in new or new in old
 
 
+# Backward-compat alias — callers that used the old name still work.
+is_substring_risky = is_substring_of_either
+
+
 def safe_replace(text: str, old: str, new: str) -> str:
     """Replace old→new, using word-boundary regex if substring risk exists."""
-    if is_substring_risky(old, new):
-        import re
+    if is_substring_of_either(old, new):
         pattern = r'(?<![가-힣㐀-䶿a-zA-Z0-9])' + re.escape(old) + r'(?![가-힣㐀-䶿a-zA-Z0-9])'
         rx = get_cached_regex(pattern)
         return rx.sub(new, text)
@@ -133,10 +140,11 @@ def safe_replace(text: str, old: str, new: str) -> str:
 
 def count_variant(text: str, old: str, new: str) -> int:
     """Count occurrences the way safe_replace would actually replace them.
+
     Word-boundary count when substring-risky, else plain count. Keeps the
-    verify gate honest: reported count == count that will be replaced."""
-    if is_substring_risky(old, new):
-        import re
+    verify gate honest: reported count == count that will be replaced.
+    """
+    if is_substring_of_either(old, new):
         pattern = r'(?<![가-힣㐀-䶿a-zA-Z0-9])' + re.escape(old) + r'(?![가-힣㐀-䶿a-zA-Z0-9])'
         return len(get_cached_regex(pattern).findall(text))
     return text.count(old)
@@ -159,7 +167,14 @@ def compute_line_diff(original: str, changed: str) -> list[str]:
 
 
 def quick_scan_variants(text: str, variants: list, min_density: float) -> bool:
-    """Returns True if file passes density check (warrants full pass)."""
+    """Returns True if file passes density check (warrants full pass).
+
+    NOTE: intentionally uses plain text.count() (not count_variant / word-boundary
+    regex) for the density gate. This means substring-risky pairs are over-counted
+    relative to what safe_replace would actually replace, producing false-positives
+    (extra passes) but never false-negatives (skipped files). The conservative
+    bias is deliberate — see QUICK_SCAN_MIN_DENSITY docstring.
+    """
     total_chars = max(len(text), 1)
     total_hits = sum(text.count(old) for old, _, _ in variants)
     density = total_hits / total_chars
@@ -167,27 +182,38 @@ def quick_scan_variants(text: str, variants: list, min_density: float) -> bool:
     return density >= min_density
 
 
-# Re-export for external use
-__all__ = [
-    'detect_encoding', 'detect_line_ending', 'acquire_lock', 'release_lock',
-    'mask_comments', 'is_substring_risky', 'safe_replace', 'count_variant',
-    'compute_line_diff', 'quick_scan_variants', 'get_cached_regex',
-    'glossary_variants_cache'
-]
-
 # === Performance caches ===
 _glossary_variants_cache = None  # (text, tokens) cache
-_safe_replace_regex_cache = {}
+_safe_replace_regex_cache: dict[str, re.Pattern] = {}
+
 
 def glossary_variants_cache():
     return _glossary_variants_cache
 
-def set_glossary_variants_cache(val):
+
+def set_glossary_variants_cache(val) -> None:
     global _glossary_variants_cache
     _glossary_variants_cache = val
 
-def get_cached_regex(pattern: str):
+
+def get_cached_regex(pattern: str) -> re.Pattern:
     if pattern not in _safe_replace_regex_cache:
-        import re
         _safe_replace_regex_cache[pattern] = re.compile(pattern)
     return _safe_replace_regex_cache[pattern]
+
+
+def clear_caches() -> None:
+    """Reset all module-level caches. Call in test setup/teardown to prevent cross-test bleed."""
+    global _glossary_variants_cache
+    _glossary_variants_cache = None
+    _safe_replace_regex_cache.clear()
+
+
+# Re-export for external use — placed after all defs so every name is defined.
+__all__ = [
+    'detect_encoding', 'detect_line_ending', 'acquire_lock', 'release_lock',
+    'mask_comments', 'is_substring_of_either', 'is_substring_risky',
+    'safe_replace', 'count_variant', 'compute_line_diff', 'quick_scan_variants',
+    'get_cached_regex', 'glossary_variants_cache', 'set_glossary_variants_cache',
+    'clear_caches', 'QUICK_SCAN_MIN_DENSITY', '_LOCK_STALE_SECONDS',
+]

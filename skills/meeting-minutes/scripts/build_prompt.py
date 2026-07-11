@@ -8,10 +8,16 @@ Usage:
   python scripts/build_prompt.py --config config.yaml   # fill real values (personal, do NOT commit)
   python scripts/build_prompt.py -o -            # print to stdout
 """
-import sys, re, argparse, pathlib
+import argparse
+import pathlib
+import re
+import sys
+
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENG = ROOT / "references" / "engine"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _shared import dig  # noqa: E402
 
 # token -> human-fillable bracket (no-config mode). Engine/path/ID tokens collapse to manual notes.
 GENERIC = {
@@ -24,16 +30,15 @@ GENERIC = {
     "slack_user_id": "(해당없음)", "slack_url_base": "(해당없음)",
 }
 
-def dig(cfg, *keys):
-    """Nested-get: dig(cfg, 'identity', 'me') -> cfg['identity']['me']."""
-    for k in keys:
-        cfg = cfg[k]
-    return cfg
+CANVAS_SECTION_MARKER = "\n## canvas"
 
-def load_config(path):
+def load_config(path: str) -> tuple[dict, dict]:
     import yaml
     c = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
-    g = lambda *k: dig(c, *k)
+
+    def g(*keys):
+        return dig(c, *keys)
+
     table = {
         "me": g("identity","me"), "org": g("identity","org"),
         "project_name": g("project","name"), "project_slug": g("project","slug"),
@@ -49,8 +54,20 @@ def load_config(path):
         headers = {}
     return table, headers
 
+TOKEN_RE = re.compile(r"\{\{([a-z_]+)\}\}")
+
 def fill(text, table):
-    return re.sub(r"\{\{([a-z_]+)\}\}", lambda m: table.get(m.group(1), m.group(0)), text)
+    return TOKEN_RE.sub(lambda m: table.get(m.group(1), m.group(0)), text)
+
+def unresolved_tokens(text, table):
+    """Tokens present in text but absent from table (order-preserving, deduped).
+    Query companion to fill(): lets --config mode detect silent pass-through."""
+    seen = []
+    for m in TOKEN_RE.finditer(text):
+        tok = m.group(1)
+        if tok not in table and tok not in seen:
+            seen.append(tok)
+    return seen
 
 def apply_headers(text, headers):
     """config locale.headers i18n override — plain string replace, longest-first."""
@@ -69,10 +86,24 @@ def main():
     templ = (ENG / "output-templates.md").read_text(encoding="utf-8")
     # Free-tier makes ONE share MD (no tools) — drop automation-only surfaces
     # (canvas/gmail/vault). Keeps share_md + detail_md; the rest is Claude Code-only.
-    _cut = templ.find("\n## canvas")
-    if _cut != -1:
+    missing = unresolved_tokens(rules + templ, table)
+    if missing:
+        src = "config" if a.config else "GENERIC"
+        print(f"WARNING: unresolved engine tokens (not in {src} table): "
+              f"{', '.join(missing)} — engine drifted; add to build_prompt table",
+              file=sys.stderr)
+
+    _cut = templ.find(CANVAS_SECTION_MARKER)
+    if _cut == -1:
+        print(
+            "WARNING: output-templates.md has no '## canvas' section — "
+            "template may have drifted; expected section not found",
+            file=sys.stderr,
+        )
+    else:
         templ = templ[:_cut].rstrip() + (
-            "\n\n> canvas·gmail·vault 산출은 **Claude Code 전용** — 무료판은 위 공유 MD 1종만 생성.\n")
+            "\n\n> canvas·gmail·vault 산출은 **Claude Code 전용** — 무료판은 위 공유 MD 1종만 생성.\n"
+        )
 
     out = f"""# 회의록 작성 프롬프트 (무료판 — 어떤 Claude 채팅에도 붙여넣기)
 

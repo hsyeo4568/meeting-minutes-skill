@@ -12,6 +12,7 @@ Commands:
 Sidecar: <transcript.txt>.fixstamp (JSON w/ skill_version).
 Lock: <transcript.txt>.lock (stale-lock auto-clean after 10min).
 """
+import argparse
 import hashlib
 import json
 import re
@@ -22,17 +23,38 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _utils as U
 from _utils import QUICK_SCAN_MIN_DENSITY
 
-SKILL_VERSION = "2.1"
+# _utils already reconfigures stdout at import time (guarded for pythonw/detached tasks).
+# No duplicate reconfigure needed here.
 
-if sys.stdout:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+SKILL_VERSION = "2.1"
 
 
 def sha256(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _pfx(dry_run: bool) -> str:
+    """Return 'DRY-RUN ' prefix when dry_run is True, else ''."""
+    return "DRY-RUN " if dry_run else ""
+
+
+def _decide(fm: bool, gm: bool, vm: bool, target_name: str, old: dict, dry_run: bool) -> int:
+    """Derive check_file exit code and print result given hash-match flags."""
+    pfx = _pfx(dry_run)
+    if not vm:
+        print(f"{pfx}RUN: {target_name} — skill v{old.get('skill_version', '?')}→v{SKILL_VERSION}")
+        return 3
+    if fm and gm:
+        print(f"{pfx}SKIP: {target_name} — unchanged")
+        return 0
+    if fm and not gm:
+        print(f"{pfx}RUN: {target_name} — glossary changed")
+        return 3
+    if not fm and gm:
+        print(f"{pfx}RUN: {target_name} — file changed")
+        return 2
+    print(f"{pfx}RUN: {target_name} — both changed")
+    return 2
 
 
 def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
@@ -51,15 +73,14 @@ def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
     if enc != 'utf-8':
         print(f"NOTE: encoding={enc} — {target.name}")
 
+    pfx = _pfx(dry_run)
     if not stamp.exists():
-        pfx = "DRY-RUN " if dry_run else ""
         print(f"{pfx}RUN: {target.name} — new file (no stamp)")
         return 1
 
     try:
         old = json.loads(stamp.read_text(encoding="utf-8"))
     except (ValueError, OSError):
-        pfx = "DRY-RUN " if dry_run else ""
         print(f"{pfx}RUN: {target.name} — corrupt stamp")
         return 1
 
@@ -67,26 +88,7 @@ def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
     gm = old.get("glossary_sha256") == cur["glossary_sha256"]
     vm = old.get("skill_version") == SKILL_VERSION
 
-    if not vm:
-        pfx = "DRY-RUN " if dry_run else ""
-        print(f"{pfx}RUN: {target.name} — skill v{old.get('skill_version','?')}→v{SKILL_VERSION}")
-        return 3
-
-    if fm and gm:
-        pfx = "DRY-RUN " if dry_run else ""
-        print(f"{pfx}SKIP: {target.name} — unchanged")
-        return 0
-    if fm and not gm:
-        pfx = "DRY-RUN " if dry_run else ""
-        print(f"{pfx}RUN: {target.name} — glossary changed")
-        return 3
-    if not fm and gm:
-        pfx = "DRY-RUN " if dry_run else ""
-        print(f"{pfx}RUN: {target.name} — file changed")
-        return 2
-    pfx = "DRY-RUN " if dry_run else ""
-    print(f"{pfx}RUN: {target.name} — both changed")
-    return 2
+    return _decide(fm, gm, vm, target.name, old, dry_run)
 
 
 def write_stamp(target: Path, glossary: Path) -> int:
@@ -114,12 +116,27 @@ def write_stamp(target: Path, glossary: Path) -> int:
         print(f"ERROR: could not lock {target.name}")
         return 4
 
-    cur = {"file_sha256": cur_hash, "glossary_sha256": sha256(glossary),
-           "skill_version": SKILL_VERSION}
-    stamp.write_text(json.dumps(cur), encoding="utf-8")
-    print(f"STAMPED: {target.name}")
-    U.release_lock(target)
-    return 0
+    try:
+        cur = {"file_sha256": cur_hash, "glossary_sha256": sha256(glossary),
+               "skill_version": SKILL_VERSION}
+        stamp.write_text(json.dumps(cur), encoding="utf-8")
+        print(f"STAMPED: {target.name}")
+        return 0
+    finally:
+        U.release_lock(target)  # release even if write_text raises (no lock leak)
+
+
+def extract_section(text: str, start_marker: str, end_marker: str = "") -> str:
+    """Slice a glossary section from start_marker to end_marker (start included,
+    rstripped). '' if start_marker absent; to EOF if end_marker absent/unfound.
+    Single source of truth for §-marker slicing (quick_scan/batch_check/print_sections)."""
+    i = text.find(start_marker)
+    if i < 0:
+        return ""
+    j = text.find(end_marker, i + len(start_marker)) if end_marker else len(text)
+    if j < 0:
+        j = len(text)
+    return text[i:j].rstrip()
 
 
 def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_DENSITY) -> int:
@@ -135,17 +152,12 @@ def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_D
         text = f.read()
 
     glossary_text = glossary.read_text(encoding="utf-8")
-    sm, em = "## 1.", "## 2."
-    variants_section = ""
-    if sm in glossary_text:
-        s = glossary_text.index(sm) + len(sm)
-        if em in glossary_text[s:]:
-            variants_section = glossary_text[s:glossary_text.index(em, s)]
+    variants_section = extract_section(glossary_text, "## 1.", "## 2.")
 
     total_hits = 0
     for line in variants_section.split("\n"):
         if "←" in line:
-            vp = line.split("←")[1] if "←" in line else ""
+            vp = line.split("←")[1]
             vp = re.sub(r'\([^)]*\)', '', vp)  # strip (문맥)(절단) etc
             for sep in [",", ";", "/"]:
                 vp = vp.replace(sep, " ")
@@ -159,9 +171,9 @@ def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_D
     density = total_hits / max(len(text), 1)
     print(f"QUICK-SCAN: {total_hits} hits, density={density:.5f} (threshold={threshold})")
     if density < threshold:
-        print(f"RESULT: low density — skip full pass")
+        print("RESULT: low density — skip full pass")
         return 0
-    print(f"RESULT: proceed with full correction")
+    print("RESULT: proceed with full correction")
     return 1
 
 
@@ -174,18 +186,9 @@ def print_sections(glossary: Path) -> int:
         return 4
     t = glossary.read_text(encoding="utf-8")
 
-    def slice_section(start_marker: str, end_marker: str) -> str:
-        i = t.find(start_marker)
-        if i < 0:
-            return ""
-        j = t.find(end_marker, i + 1) if end_marker else len(t)
-        if j < 0:
-            j = len(t)
-        return t[i:j].rstrip()
-
     out = []
     for sm, em in (("## 1.", "## 2."), ("## 7.", "## 8."), ("## 8.", "## 9.")):
-        seg = slice_section(sm, em)
+        seg = extract_section(t, sm, em)
         if seg:
             out.append(seg)
     if not out:
@@ -210,12 +213,7 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
 
     # Cache glossary content once per batch
     glossary_text = glossary.read_text(encoding="utf-8")
-    sm, em = "## 1.", "## 2."
-    variants_section = ""
-    if sm in glossary_text:
-        s = glossary_text.index(sm) + len(sm)
-        if em in glossary_text[s:]:
-            variants_section = glossary_text[s:glossary_text.index(em, s)]
+    variants_section = extract_section(glossary_text, "## 1.", "## 2.")
     U.set_glossary_variants_cache(variants_section)
 
     skip_count, new_count, run_count, qs_skip = 0, 0, 0, 0
@@ -235,7 +233,7 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
         total_hits = 0
         for line in variants_section.split("\n"):
             if "←" in line:
-                vp = line.split("←")[1] if "←" in line else ""
+                vp = line.split("←")[1]
                 vp = re.sub(r'\([^)]*\)', '', vp)
                 for sep in [",", ";", "/"]:
                     vp = vp.replace(sep, " ")
@@ -285,61 +283,91 @@ def migrate_stamps(folder: Path, glossary: Path) -> int:
     return 0
 
 
-def main() -> int:
-    args = sys.argv[1:]
-
-    if "--version" in args or "-V" in args:
-        print(f"fixstamp v{SKILL_VERSION}")
-        return 0
-
-    dry_run = "--dry-run" in args
-    args = [a for a in args if a != "--dry-run"]
-
-    threshold = None
-    if "--threshold" in args:
-        idx = args.index("--threshold")
-        try:
-            threshold = float(args[idx + 1])
-            args = args[:idx] + args[idx + 2:]
-        except (ValueError, IndexError):
-            print("ERROR: --threshold requires a float value")
-            return 4
-
-    # sections: cmd + glossary only (2 args) — print §1/§7/§8 to stdout
-    if args and args[0] == "sections":
-        if len(args) < 2:
-            print("usage: fixstamp.py sections <glossary.md>")
-            return 4
-        return print_sections(Path(args[1]))
-
-    if len(args) < 3 or args[0] not in ("check", "write", "batch", "quick-scan", "migrate"):
-        print(
-            "fixstamp v" + SKILL_VERSION + "\n"
-            "usage: fixstamp.py check|write|batch|quick-scan|migrate [--dry-run] [--threshold N] <target> <glossary.md>\n"
-            "       fixstamp.py sections <glossary.md>\n"
+def _build_parser() -> argparse.ArgumentParser:
+    """Build and return the argparse parser for fixstamp."""
+    p = argparse.ArgumentParser(
+        prog="fixstamp.py",
+        description=(
+            f"fixstamp v{SKILL_VERSION} — re-run skip gate for transcript correction.\n\n"
             "  check:      exit 0=skip 1=new 2=file-changed 3=version/glossary-changed 4=error\n"
             "  write:      record hashes after correction (verifies modification)\n"
             "  batch:      folder check with quick-scan pre-filter + progress\n"
             "  quick-scan: rapid variant density check\n"
             "  migrate:    re-stamp all .fixstamp files in folder to current version\n"
             "  sections:   print correction-relevant glossary sections (§1/§7/§8) only\n"
-            "  --version:  print version and exit"
-        )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("-V", "--version", action="version", version=f"fixstamp v{SKILL_VERSION}")
+    # Options accepted BOTH before the subcommand (fixstamp.py --dry-run check ...)
+    # and after it (fixstamp.py check ... --dry-run — the form SKILL.md documents).
+    # The subparser copies use SUPPRESS defaults so an absent post-command flag does
+    # not clobber a value set at the top level.
+    p.add_argument("--dry-run", action="store_true", help="no side effects")
+    p.add_argument(
+        "--threshold", type=float, default=None, metavar="N",
+        help=f"quick-scan density threshold (default {QUICK_SCAN_MIN_DENSITY})",
+    )
+
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS,
+                        help="no side effects")
+    common.add_argument("--threshold", type=float, metavar="N", default=argparse.SUPPRESS,
+                        help=f"quick-scan density threshold (default {QUICK_SCAN_MIN_DENSITY})")
+
+    sub = p.add_subparsers(dest="cmd", metavar="COMMAND")
+
+    # check / write / quick-scan / migrate: target + glossary
+    for cmd, help_text in (
+        ("check", "check stamp; exit 0=skip 1=new 2=changed 3=glossary/version 4=error"),
+        ("write", "write stamp after correction"),
+        ("quick-scan", "rapid variant density check (0=skip, 1=proceed)"),
+        ("migrate", "re-stamp all .fixstamp files in folder to current version"),
+    ):
+        sp = sub.add_parser(cmd, help=help_text, parents=[common])
+        sp.add_argument("target", help="transcript file or folder (migrate/batch)")
+        sp.add_argument("glossary", help="glossary .md file")
+
+    # batch: folder + glossary
+    sp_batch = sub.add_parser("batch", help="folder check with quick-scan pre-filter",
+                              parents=[common])
+    sp_batch.add_argument("target", help="folder containing .txt transcripts")
+    sp_batch.add_argument("glossary", help="glossary .md file")
+
+    # sections: glossary only
+    sp_sect = sub.add_parser("sections", help="print §1/§7/§8 correction sections",
+                             parents=[common])
+    sp_sect.add_argument("glossary", help="glossary .md file")
+
+    return p
+
+
+def main() -> int:
+    p = _build_parser()
+    args = p.parse_args()
+
+    if args.cmd is None:
+        p.print_help()
         return 4
 
-    cmd, target, glossary = args[0], Path(args[1]), Path(args[2])
+    dry_run = args.dry_run
+    threshold = args.threshold or QUICK_SCAN_MIN_DENSITY
 
-    if cmd == "batch":
+    if args.cmd == "sections":
+        return print_sections(Path(args.glossary))
+
+    target = Path(args.target)
+    glossary = Path(args.glossary)
+
+    if args.cmd == "batch":
         return batch_check(target, glossary, dry_run=dry_run)
-    if cmd == "migrate":
+    if args.cmd == "migrate":
         return migrate_stamps(target, glossary)
-    if cmd == "quick-scan":
-        return quick_scan(target, glossary, threshold=threshold or QUICK_SCAN_MIN_DENSITY)
-    if dry_run and cmd == "check":
-        return check_file(target, glossary, dry_run=True)
-    if cmd == "check":
-        return check_file(target, glossary)
-    if cmd == "write":
+    if args.cmd == "quick-scan":
+        return quick_scan(target, glossary, threshold=threshold)
+    if args.cmd == "check":
+        return check_file(target, glossary, dry_run=dry_run)
+    if args.cmd == "write":
         return write_stamp(target, glossary)
     return 4
 

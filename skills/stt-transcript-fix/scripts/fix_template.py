@@ -13,10 +13,12 @@ JSON: {"replacements": [["old","new",count],...], "markers": [[line,"txt"],...],
 """
 import argparse
 import json
-import sys
+import re
 import shutil
+import sys
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _utils as U
@@ -28,7 +30,15 @@ MARKERS = []
 CONTEXTUAL = []
 
 
-def load_replacements(path: Path):
+class CorrectionSet(NamedTuple):
+    """Bundles the four data collections produced by JSON loading / defaults."""
+    reps: list        # [old, new, expected_count]
+    ctx: list         # [old, new, expected_count]  (contextual — softer gate)
+    markers: list     # [line_num, marker_text]
+    spans: list       # [(placeholder, original_span)]  from mask_comments
+
+
+def load_replacements(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -51,48 +61,70 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def verify_counts(masked, reps, ctx, force):
-    """Verify variant counts match. Returns True if a HALT-worthy mismatch exists."""
-    failed = False
+def _find_count_mismatches(masked: str, reps: list, ctx: list) -> list[tuple]:
+    """Pure query: return list of (old, new, expected, actual, is_ctx) for mismatches."""
+    results = []
     for old_str, new_str, expected in reps:
         actual = U.count_variant(masked, old_str, new_str)
         if actual != expected:
+            results.append((old_str, new_str, expected, actual, False))
+    for old_str, new_str, expected in ctx:
+        actual = U.count_variant(masked, old_str, new_str)
+        if actual != expected:
+            results.append((old_str, new_str, expected, actual, True))
+    return results
+
+
+def verify_counts(masked: str, reps: list, ctx: list, force: bool) -> bool:
+    """Print count check results. Returns True if a HALT-worthy mismatch exists.
+
+    Implemented in terms of _find_count_mismatches() — no duplicated count loop.
+    """
+    mismatch_list = _find_count_mismatches(masked, reps, ctx)
+    # Build lookup: (old_str, is_ctx) -> (expected, actual)
+    mismatch_map = {(old, is_ctx): (expected, actual)
+                    for old, _new, expected, actual, is_ctx in mismatch_list}
+
+    for old_str, new_str, expected in reps:
+        if (old_str, False) in mismatch_map:
+            exp, actual = mismatch_map[(old_str, False)]
             if force:
-                print(f"  FORCE: '{old_str}' expected={expected} actual={actual}")
+                print(f"  FORCE: '{old_str}' expected={exp} actual={actual}")
             else:
-                print(f"  COUNT MISMATCH: '{old_str}' expected={expected} actual={actual}")
-                failed = True
+                print(f"  COUNT MISMATCH: '{old_str}' expected={exp} actual={actual}")
         else:
+            actual = U.count_variant(masked, old_str, new_str)
             print(f"  OK: '{old_str}' x{actual}")
 
     for old_str, new_str, expected in ctx:
-        actual = U.count_variant(masked, old_str, new_str)
-        tag = "CTX OK" if actual == expected else "CTX WARN"
-        print(f"  {tag}: '{old_str}' x{actual} (expected={expected})")
-        if actual != expected and not force:
-            failed = True
-    return failed
+        if (old_str, True) in mismatch_map:
+            exp, actual = mismatch_map[(old_str, True)]
+            print(f"  CTX WARN: '{old_str}' x{actual} (expected={exp})")
+        else:
+            actual = U.count_variant(masked, old_str, new_str)
+            print(f"  CTX OK: '{old_str}' x{actual} (expected={expected})")
+
+    return bool(mismatch_list) and not force
 
 
-def apply_corrections(masked, spans, reps, ctx, markers_list, original, le):
+def apply_corrections(masked: str, cs: CorrectionSet, original: str, le: str) -> str:
     """Apply replacements, restore comments, then insert markers. Returns new text."""
     changed = masked
-    for old_str, new_str, _ in reps:
+    for old_str, new_str, _ in cs.reps:
         changed = U.safe_replace(changed, old_str, new_str)
-    for old_str, new_str, expected in ctx:
+    for old_str, new_str, expected in cs.ctx:
         if U.count_variant(changed, old_str, new_str) == expected:
             changed = U.safe_replace(changed, old_str, new_str)
 
     # Restore comments
-    for ph, span in spans:
+    for ph, span in cs.spans:
         changed = changed.replace(ph, span)
 
     # Apply markers (speaker-header guard)
-    if markers_list:
-        import re as re_m
-        spkr_pat = re_m.compile(r'^\d{2}:\d{2}\s')
+    if cs.markers:
+        spkr_pat = re.compile(r'^\d{2}:\d{2}\s')
         lines = changed.splitlines()
-        for line_num, marker_text in sorted(markers_list, reverse=True):
+        for line_num, marker_text in sorted(cs.markers, reverse=True):
             idx = line_num - 1
             if 0 <= idx < len(lines):
                 if spkr_pat.match(lines[idx]):
@@ -106,8 +138,21 @@ def apply_corrections(masked, spans, reps, ctx, markers_list, original, le):
     return changed
 
 
-def write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list):
-    """Atomic write via temp (preserves original on crash; restores .bak on error)."""
+def write_atomic(
+    target_path: Path,
+    changed: str,
+    enc: str,
+    bak_path: Path,
+    reps: list,
+    ctx: list,
+    markers_list: list,
+) -> None:
+    """Atomic write via temp (preserves original on crash; restores .bak on error).
+
+    Precondition: bak_path must exist before calling (caller is responsible for
+    creating it via shutil.copy2 before calling write_atomic).
+    """
+    assert bak_path.exists(), "bak_path must exist before calling write_atomic"
     tmp_path = None
     try:
         fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="fix_", dir=target_path.parent)
@@ -116,8 +161,7 @@ def write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list):
             f.write(changed)
         Path(tmp_path).replace(target_path)
         print(f"DONE: {len(reps)}+{len(ctx)} replacements, {len(markers_list)} markers")
-        if tmp_path and Path(tmp_path).exists():
-            Path(tmp_path).unlink(missing_ok=True)
+        # tmp was renamed onto target by replace() — no leftover to clean on success
     except OSError:
         if tmp_path and Path(tmp_path).exists():
             try:
@@ -129,7 +173,7 @@ def write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list):
         raise
 
 
-def main():
+def main() -> int:
     args = parse_args()
 
     target_path = Path(args.transcript)
@@ -164,7 +208,7 @@ def main():
     if args.quick_scan or qs_enabled:
         masked, _ = U.mask_comments(original)
         if not U.quick_scan_variants(masked, all_rep, min_dens):
-            print(f"QUICK-SCAN SKIP: low density — no corrections needed")
+            print("QUICK-SCAN SKIP: low density — no corrections needed")
             return 0
         if args.quick_scan:
             print("QUICK-SCAN PASS: warrants full correction")
@@ -189,10 +233,11 @@ def main():
 
         # Mask comments
         masked, spans = U.mask_comments(original)
+        cs = CorrectionSet(reps=reps, ctx=ctx, markers=markers_list, spans=spans)
 
         # Log substring-risky pairs
         for old_str, new_str, _ in all_rep:
-            if U.is_substring_risky(old_str, new_str):
+            if U.is_substring_of_either(old_str, new_str):
                 print(f"  NOTE: substring-risky '{old_str}'↔'{new_str}' — using word-boundary regex")
 
         # Verify counts
@@ -201,7 +246,7 @@ def main():
             sys.exit(1)
 
         # Apply corrections + markers
-        changed = apply_corrections(masked, spans, reps, ctx, markers_list, original, le)
+        changed = apply_corrections(masked, cs, original, le)
 
         # Verify line count
         new_lines = changed.splitlines()
@@ -223,6 +268,8 @@ def main():
             write_atomic(target_path, changed, enc, bak_path, reps, ctx, markers_list)
     finally:
         U.release_lock(target_path)
+
+    return 0
 
 
 if __name__ == "__main__":
