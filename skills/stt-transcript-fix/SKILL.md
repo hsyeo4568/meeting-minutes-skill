@@ -1,6 +1,7 @@
 ---
 name: stt-transcript-fix
-description: 회의 녹취(STT) .txt 오타·문맥 교정 + 문맥 이해 기반 (*...) 마커 자동 삽입. 프로필 domain-glossary.md §STT 교정표 기반 고신뢰 교정 + 문맥 도메인 오손 복원 + 의문문 존대 물음표 복원. 숫자/추측 보호. 신규 오인식은 glossary 누적용으로 반환. 단일 파일=메인에서 직접 처리(서브에이전트 금지 — spawn 대기로 hang), 다수 파일(3+)만 위임.
+description: 회의 녹취(STT) .txt 원문 교정 — 오타·인명·용어 오인식 교정 + (*...) 의미 마커 자동 삽입. Use when 녹취/전사/transcript .txt 교정, 오탈자 정리, "녹취 고쳐줘/교정해줘", 회의 원문 정본화(회의록 작성 전 단계). NOT for 회의록 작성(→meeting-minutes), 회의록 PPT(→meeting-minutes-ppt), 일반 문서 윤문. 숫자·화자 라벨 불변 보호, 신규 오인식은 glossary 누적 반환. 단일 파일=메인 스레드 직접 처리(서브에이전트 spawn 금지 — hang), 3+ 파일만 병렬 위임.
+argument-hint: "[transcript.txt | folder]"
 ---
 
 # STT Transcript Fix (generic engine)

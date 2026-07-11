@@ -29,6 +29,8 @@
 > Style rules branch on a locale condition (`korean-gaejosik`) — culture-specific writing conventions are not imposed as universal rules.
 > **This file covers only universal writing hygiene, independent of meeting type.** Meeting *form* (section order, categories, Action grouping, titles) belongs to profile `structure.md` (see §Section Order below). §3/§5/§6/§9 lean on *operational-meeting examples* — if they don't fit the meeting type, follow structure.md.
 
+Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee attribution · §5 cross-org data · §6 symptom titles · §7 AI-smell removal · §8 identifier cross-check · §9 no report duplication · §10 abbreviations · §Section-Order→structure.md · §medium labeling
+
 ## 1. Context Linking (context-link)
 
 - Before drafting, read the 1–2 prior weeks of minutes + the previous day/week's meeting. **Read scope and depth can be narrowed by the profile (profile takes precedence)** — e.g. read the immediately preceding entry in full; others in link/Action sections only.

@@ -1,6 +1,7 @@
 ---
 name: meeting-minutes
-description: "회의록 자동화 엔진 — 녹취/노트 → 카테고리별 산출물 분기(데일리=팀챗 공유 MD / 정기=Canvas+메일 / 워크샵=Canvas) + 맥락 연계·세그먼트·작성 규칙 + Vault 정본·Ontology 연동. config.yaml + profile 구동(범용·교체 가능). 도구 부재 시 파일 fallback."
+description: "회의록 자동화 엔진 — 녹취(.txt)/노트 → 회의록 작성·공유·정본 저장 원스톱. Use when \"회의록 작성/정리/만들어줘\", minutes 생성, 회의 내용 요약·공유, 데일리/정기/워크샵 회의 산출물 요청. 카테고리별 분기(데일리=팀챗 공유 MD / 정기=Canvas+메일 / 워크샵=Canvas) + Vault 정본·Ontology 연동. config.yaml + profile 구동(범용·교체 가능). NOT for 녹취 원문 오타 교정(→stt-transcript-fix), 표 양식 PPT 회의록(→meeting-minutes-ppt). 도구 부재 시 파일 fallback."
+argument-hint: "[source-file]"
 ---
 
 # meeting-minutes (generic engine)
