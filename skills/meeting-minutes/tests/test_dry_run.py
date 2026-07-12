@@ -189,3 +189,33 @@ def test_check_profile_missing_file_returns_1(tmp_path):
 def test_check_degradation_returns_0():
     """Degradation check is informational — always 0."""
     assert DR.check_degradation(_SAMPLE_CFG) == 0
+
+
+# ---------------------------------------------------------------------------
+# codex review 2026-07-12 #11 regressions — validator must honor engine contract
+# ---------------------------------------------------------------------------
+
+def test_check_profile_null_is_valid_degraded_mode(tmp_path, capsys):
+    """profile: null is a supported mode (tooling.md) — no TypeError, no failure."""
+    cfg = {"project": {"name": "Demo", "slug": "demo", "profile": None}}
+    assert DR.check_profile(cfg, tmp_path) == 0
+    assert "generic mode" in capsys.readouterr().out
+
+
+def test_check_profile_missing_key_is_valid(tmp_path):
+    cfg = {"project": {"name": "Demo", "slug": "demo"}}  # no 'profile' key at all
+    assert DR.check_profile(cfg, tmp_path) == 0
+
+
+def test_check_degradation_no_daily_category(capsys):
+    """Category names are config-defined — 'weekly'-only config must not KeyError."""
+    cfg = {"categories": {"weekly": {"share_md": True, "gmail": True}}}
+    assert DR.check_degradation(cfg) == 0
+    out = capsys.readouterr().out
+    assert "category=weekly" in out
+    assert "gmail -> .md fallback" in out
+
+
+def test_check_degradation_empty_categories(capsys):
+    assert DR.check_degradation({}) == 0
+    assert "skipped" in capsys.readouterr().out

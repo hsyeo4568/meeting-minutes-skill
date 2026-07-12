@@ -117,10 +117,17 @@ def check_path_safety(path_checks: dict[str, str]) -> int:
 def check_profile(cfg: dict, root: pathlib.Path) -> int:
     """Verify that required profile markdown files exist on disk.
 
-    Returns the number of failures (0 = profile complete).
+    profile=null is a VALID degraded mode per the engine contract (tooling.md:
+    skip domain/contact cross-validation, proceed with placeholders) — the
+    validator must not crash on it (codex review 2026-07-12 #11: TypeError).
+
+    Returns the number of failures (0 = profile complete or valid null).
     """
-    profile_key = cfg["project"]["profile"]
-    prof = root / profile_key
+    profile_key = (cfg.get("project") or {}).get("profile")
+    if profile_key is None:
+        print("== profile null: OK (generic mode — domain/contact cross-validation skipped)")
+        return 0
+    prof = root / str(profile_key)
     missing = [n for n in _REQUIRED_PROFILE_FILES if not (prof / n).exists()]
     print(
         f"== profile {profile_key}: "
@@ -130,23 +137,31 @@ def check_profile(cfg: dict, root: pathlib.Path) -> int:
 
 
 def check_degradation(cfg: dict) -> int:
-    """Informational dry-run: all tools OFF for 'daily' meeting -> file-only plan.
+    """Informational dry-run: all tools OFF -> file-only plan per category.
+
+    Category names are config-defined — iterating (not hardcoding 'daily')
+    keeps the validator aligned with the generic-engine contract (codex
+    review 2026-07-12 #11: KeyError on configs without a 'daily' category).
 
     Always returns 0 (degradation path is never an error).
     """
-    print("== degradation dry-run (tools all OFF, category=daily)")
-    cat = cfg["categories"]["daily"]
-    plan = []
-    for delivery, enabled in cat.items():
-        if not enabled or enabled == "optional":
-            continue
-        if delivery == "canvas":
-            plan.append("canvas -> .md fallback (slack off)")
-        elif delivery == "gmail":
-            plan.append("gmail -> .md fallback (gmail off)")
-        else:
-            plan.append(f"{delivery} -> file")
-    print("  outputs:", ", ".join(plan) if plan else "(none)")
+    categories = cfg.get("categories") or {}
+    if not categories:
+        print("== degradation dry-run: no categories in config — skipped")
+        return 0
+    for cat_name, cat in categories.items():
+        print(f"== degradation dry-run (tools all OFF, category={cat_name})")
+        plan = []
+        for delivery, enabled in (cat or {}).items():
+            if not enabled or enabled == "optional":
+                continue
+            if delivery == "canvas":
+                plan.append("canvas -> .md fallback (slack off)")
+            elif delivery == "gmail":
+                plan.append("gmail -> .md fallback (gmail off)")
+            else:
+                plan.append(f"{delivery} -> file")
+        print("  outputs:", ", ".join(plan) if plan else "(none)")
     print("  -> file-only, no errors")
     return 0
 

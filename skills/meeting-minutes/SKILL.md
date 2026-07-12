@@ -21,11 +21,11 @@ Other companies/projects just fill in their own `config.yaml` and use it as-is.
 
 At task start, in order:
 
-1. **Load config** — `config.yaml` at skill root. **If absent, run the `ONBOARDING.md` interview first** (ask one question at a time → generate config + profile). Do not ask the user to pre-fill a form.
+1. **Load config** — `config.yaml` at skill root. **If absent, run the `ONBOARDING.md` interview first** (batch related questions per message, infer-then-confirm → generate config + profile; see ONBOARDING `배치 원칙`). Do not ask the user to pre-fill a form.
    - `identity` (me/org), `paths` (vault/work_folder), `project.profile`, `categories` matrix, `channels`, `tools`, `locale`.
 2. **Load profile** — path from `project.profile` (`profiles/<name>/`). If `null`, skip domain/contact cross-validation (proceed with placeholders).
 3. **Detect tools** — for each entry in `config.tools` (slack_mcp/gmail_mcp/qmd/ontology), if set to `auto`, detect at runtime. Missing tools fall back to files (`references/engine/tooling.md`). **Never fail due to a missing tool.**
-4. **Determine category** — decide which row in config `categories` the meeting falls under first. **Channel confusion is the most common mistake.** Only produce the output flags (detail_md/share_md/canvas/gmail/vault) for that row.
+4. **Determine category** — decide which row in config `categories` the meeting falls under first. **Channel confusion is the most common mistake.** Classification may need input signals: build the input manifest + sample the transcript head (pipeline.md phase 1) — do NOT full-read all materials just to classify. Only produce the output flags (detail_md/share_md/canvas/gmail/vault) for that row.
 
 > The default category matrix (daily=share, regular=canvas+gmail) reflects one org's convention only — other orgs override via `config.categories`.
 
@@ -43,7 +43,7 @@ Full skeleton in `references/engine/pipeline.md`; canonical phase names in `refe
 
 > The canonical repository is the source of truth; work_folder outputs are copies. Daily meetings are often MD-first (user reviews/edits the work_folder MD) — let the category set the order.
 
-> **MD-first approval gate (required, all categories):** draft MD in the work folder first → user review/edits → approval → **re-Read the draft from disk and use only that (never regenerate from the in-context draft — silent loss of user edits)** → phase 6 canonical save → phase 5 canvas/gmail. Never one turn; canvas once only (re-share = new canvas + update frontmatter canvas id). Full ordering + per-artifact re-Read obligation in `pipeline.md`; save order also in profile conventions `초안·정본 저장 순서`.
+> **MD-first approval gate (required, all categories):** draft MD in the work folder first → user review/edits → approval → **re-Read the draft from disk, record its sha256 as `approved_hash`, and derive ALL artifacts from that one snapshot (never regenerate from the in-context draft — silent loss of user edits)** → phase 6 canonical save → phase 5 canvas/gmail. Never one turn — unless the user **explicitly pre-approves in the request** (that message = the approval step; still record `approved_hash`; gmail stays draft-only). Before each artifact: hash check, mismatch = blocking re-approval (pipeline.md). Canvas once only (re-share = new canvas + update frontmatter canvas id). Full ordering + snapshot/run-state rules in `pipeline.md`; save order also in profile conventions `초안·정본 저장 순서`.
 
 ---
 
