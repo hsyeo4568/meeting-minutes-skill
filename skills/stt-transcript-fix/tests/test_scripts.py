@@ -213,6 +213,29 @@ def test_safe_replace_leading_boundary_still_blocks_midword():
     assert U.safe_replace("임피던스 유지", old, new) == "임피던스 유지"
 
 
+def test_safe_replace_truncation_edge_with_korean_particle():
+    """Regression (1p practice, 2026-07-12): new⊂old truncation where `old` ends
+    in a Hangul char must still match when a Korean particle glues after it.
+
+    The `else` branch set trail=True for any Hangul-final old, so the trailing
+    lookahead rejected '부가세트에서' / '임임피던스를' → COUNT MISMATCH → HALT.
+    Mirror of the codex v2 #7 fix that only covered the old⊂new direction.
+    """
+    # new is a prefix of old (trailing chars = STT noise), particle '에서' after.
+    old, new = "부가세트", "부가세"
+    assert U.is_substring_risky(old, new)
+    text = "이제 부가세트에서 10%냐"
+    assert U.count_variant(text, old, new) == 1
+    assert U.safe_replace(text, old, new) == "이제 부가세에서 10%냐"
+
+    # new is a suffix of old (accumulation cleanup), particle '를' after.
+    old2, new2 = "임임피던스", "임피던스"
+    assert U.is_substring_risky(old2, new2)
+    text2 = "임임피던스를 측정"
+    assert U.count_variant(text2, old2, new2) == 1
+    assert U.safe_replace(text2, old2, new2) == "임피던스를 측정"
+
+
 def test_safe_replace_non_risky_plain():
     old, new = "구정", "규정"
     assert not U.is_substring_risky(old, new)
