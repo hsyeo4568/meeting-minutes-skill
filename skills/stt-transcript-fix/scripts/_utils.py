@@ -129,12 +129,31 @@ def is_substring_of_either(old: str, new: str) -> bool:
 is_substring_risky = is_substring_of_either
 
 
+# Chars treated as "word" chars for boundary detection: Hangul, CJK, ASCII alnum.
+_WORD_CLASS = r'가-힣㐀-䶿a-zA-Z0-9'
+_WORD_EDGE_RE = re.compile(f'[{_WORD_CLASS}]')
+
+
+def _boundary_regex(old: str) -> re.Pattern:
+    """Word-boundary regex around `old`, guarding each side ONLY when old's edge
+    char is itself a word char.
+
+    Korean particles attach with no space (e.g. '충전)에'), so an annotation whose
+    old string ends in punctuation like ')' must NOT carry a trailing lookahead —
+    a following particle would make an otherwise-correct match wrongly fail. Guard
+    each edge independently on whether that edge is a word char, so real substring
+    risk (e.g. '피던스' inside '임피던스') is still blocked while punctuation-edged
+    annotations replace cleanly.
+    """
+    lead = f'(?<![{_WORD_CLASS}])' if _WORD_EDGE_RE.match(old) else ''
+    trail = f'(?![{_WORD_CLASS}])' if _WORD_EDGE_RE.match(old[-1]) else ''
+    return get_cached_regex(lead + re.escape(old) + trail)
+
+
 def safe_replace(text: str, old: str, new: str) -> str:
     """Replace old→new, using word-boundary regex if substring risk exists."""
     if is_substring_of_either(old, new):
-        pattern = r'(?<![가-힣㐀-䶿a-zA-Z0-9])' + re.escape(old) + r'(?![가-힣㐀-䶿a-zA-Z0-9])'
-        rx = get_cached_regex(pattern)
-        return rx.sub(new, text)
+        return _boundary_regex(old).sub(new, text)
     return text.replace(old, new)
 
 
@@ -145,8 +164,7 @@ def count_variant(text: str, old: str, new: str) -> int:
     verify gate honest: reported count == count that will be replaced.
     """
     if is_substring_of_either(old, new):
-        pattern = r'(?<![가-힣㐀-䶿a-zA-Z0-9])' + re.escape(old) + r'(?![가-힣㐀-䶿a-zA-Z0-9])'
-        return len(get_cached_regex(pattern).findall(text))
+        return len(_boundary_regex(old).findall(text))
     return text.count(old)
 
 

@@ -173,6 +173,37 @@ def test_safe_replace_substring_risky_word_boundary_and_idempotence():
     assert "임임피던스" not in twice
 
 
+def test_safe_replace_risky_paren_edge_with_korean_particle():
+    """Regression (bottleneck_report_260710 ①): risky annotation whose `old` ends
+    in ')' must still match when a Korean particle attaches directly after it.
+
+    Old behaviour: trailing lookahead after ')' saw the particle '에'/'이' as a
+    word char and refused the match → COUNT MISMATCH on all such pairs.
+    """
+    # old ends in ')', new is a substring of old → risky → boundary path.
+    old, new = "춘전(충전)", "충전"
+    assert U.is_substring_risky(old, new)
+    text = "그래서 춘전(충전)에 대한 논의를 했다"
+    assert U.count_variant(text, old, new) == 1
+    assert U.safe_replace(text, old, new) == "그래서 충전에 대한 논의를 했다"
+
+    # multi-char new that itself ends in punctuation, particle-adjacent.
+    old2, new2 = "실효용량(실효용량)", "실효용량"
+    assert U.is_substring_risky(old2, new2)
+    text2 = "실효용량(실효용량)이 기준이다"
+    assert U.count_variant(text2, old2, new2) == 1
+    assert U.safe_replace(text2, old2, new2) == "실효용량이 기준이다"
+
+
+def test_safe_replace_leading_boundary_still_blocks_midword():
+    """The leading lookbehind must survive — a risky old with a word-char start
+    must NOT match when glued to a preceding word char."""
+    old, new = "피던스", "임피던스"
+    # standalone matches, embedded inside 임피던스 does not.
+    assert U.count_variant("임피던스 유지", old, new) == 0
+    assert U.safe_replace("임피던스 유지", old, new) == "임피던스 유지"
+
+
 def test_safe_replace_non_risky_plain():
     old, new = "구정", "규정"
     assert not U.is_substring_risky(old, new)

@@ -27,6 +27,7 @@ Note: Gmail/Slack MCP are soft-required — if present, use them; if absent, fal
   - **Default = DM (`dm_user_id: {{slack_user_id}}`)** — hand the user the canvas + link only; the user posts to the channel themselves. Do NOT create with `channel_id` unless the user explicitly asks to auto-post: `channel_id` mode auto-posts a bot link message that a regular member cannot delete (only workspace admins / the posting bot token can), so an unwanted or superseded post gets stuck in-channel.
   - Flow: create in DM → give URL → user edits → retrieve final with `read_canvas` → apply to Vault canonical save. Report the canvas link; leave channel sharing to the user.
 - **Gmail**: Create draft only. **Auto-send is prohibited** — user reviews and sends.
+  - **Reading a prior thread to mirror the last sent mail** (recipients/format): fetch cheap-first. `search_threads` already returns per-message `snippet` + `sender`/`date` — read that to pick which message you need, then fetch that thread with the **lightest** `messageFormat` (`METADATA_ONLY`/`MINIMAL`) and take `messages[-1]` only. Do NOT open with `FULL_CONTENT`: real RE: chains quote the whole prior mail every reply and drag inline-image (CID) metadata, so a 3–4 message thread blows past the tool token limit → forced file-redirect → re-parse in python. `FULL_CONTENT` only when you actually need a full historical body, and even then target the single message.
 
 ## Known failures / fallback
 
