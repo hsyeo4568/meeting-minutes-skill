@@ -267,9 +267,13 @@ def _boundary_regex(old: str, new: str) -> re.Pattern:
     rejected every Korean particle glued after the target (피던스는/가/를 —
     codex v2 #7: the rule corrected NOTHING in normal sentences).
 
-    new ⊂ old (annotation '춘전(충전)'→'충전'): keep the edge-char rule — guard
-    a side only when old's own edge char is a word char (')' edge must not
-    carry a lookahead, or particles after it kill the match).
+    new ⊂ old (annotation '춘전(충전)'→'충전', truncation '부가세트'→'부가세'):
+    keep the LEADING edge-char rule (blocks matching inside a preceding compound),
+    but NEVER carry a trailing lookahead. A shortening cannot re-accumulate, so
+    whatever follows `old` — a ')' or a Korean particle ('부가세트에서',
+    '임임피던스를') — is legitimately outside the match. A blanket Hangul trailing
+    guard here reproduced codex v2 #7 in the mirror direction: every
+    particle-attached truncation returned 0 hits → COUNT MISMATCH → HALT.
     """
     if old in new and old != new:
         lead = trail = False
@@ -283,7 +287,7 @@ def _boundary_regex(old: str, new: str) -> re.Pattern:
             start = idx + 1
     else:
         lead = bool(_WORD_EDGE_RE.match(old))
-        trail = bool(_WORD_EDGE_RE.match(old[-1]))
+        trail = False
     lead_pat = f'(?<![{_WORD_CLASS}])' if lead else ''
     trail_pat = f'(?![{_WORD_CLASS}])' if trail else ''
     return get_cached_regex(lead_pat + re.escape(old) + trail_pat)
