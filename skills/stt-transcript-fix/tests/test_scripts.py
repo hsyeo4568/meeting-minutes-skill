@@ -213,6 +213,49 @@ def test_safe_replace_leading_boundary_still_blocks_midword():
     assert U.safe_replace("임피던스 유지", old, new) == "임피던스 유지"
 
 
+def test_scan_candidates_grounded_no_hallucination(tmp_path):
+    """scan emits ONLY grep-grounded candidates (count>0), so an LLM cannot
+    invent a nonexistent old-string. Context/2-char variants go to `review`;
+    (*...) spans are masked out; '(→X)' redirects retarget correctly.
+    Regression for the 1p Sonnet run that hallucinated 로고→로그 (0× in file)."""
+    import fixstamp as FS
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT 오인식 교정표\n"
+        "### 1-1. 약어\n"
+        "| 권장 | ← 오인식 변형 |\n"
+        "|------|------|\n"
+        "| **SMP** | SNP, 에세이 |\n"
+        "| **SoC** (중간 o 소문자) | SOC, 라스트 SOC(→last SoC) |\n"
+        "| **V2G** | VTC, VT(정책 문맥) |\n"
+        "### 1-2. 용어\n"
+        "| 권장 | ← 오인식 변형 |\n"
+        "|------|------|\n"
+        "| **충전** | 충격(문맥) |\n"
+        "## 2. 다음\n",
+        encoding="utf-8",
+    )
+    tgt = tmp_path / "t.txt"
+    tgt.write_text(
+        "에세이 시장에서 SOC 확인. 라스트 SOC 처리. VTC 서비스. "
+        "충격 명령. VT 정책. (*마커_에세이 포함)\n",
+        encoding="utf-8",
+    )
+    res = FS.scan_candidates(tgt, glo)
+    autod = {(v, t): n for v, t, n in res["auto"]}
+    revd = {(r[0], r[1]) for r in res["review"]}
+    assert autod.get(("에세이", "SMP")) == 1        # marker occurrence masked out
+    assert autod.get(("SOC", "SoC")) == 2
+    assert autod.get(("VTC", "V2G")) == 1
+    assert ("충격", "충전") in revd                  # (문맥) → review, not auto
+    assert ("VT", "V2G") in revd                     # context / 2-char → review
+    # redirect retargets to 'last SoC', not the row header 'SoC'
+    assert any(r[:2] == ["라스트 SOC", "last SoC"] for r in res["auto"] + res["review"])
+    # SNP never appears in the transcript → must NOT be emitted (count-0 filter)
+    assert not any(v == "SNP" for v, _, _ in res["auto"])
+    assert not any(r[0] == "SNP" for r in res["review"])
+
+
 def test_safe_replace_truncation_edge_with_korean_particle():
     """Regression (1p practice, 2026-07-12): new⊂old truncation where `old` ends
     in a Hangul char must still match when a Korean particle glues after it.

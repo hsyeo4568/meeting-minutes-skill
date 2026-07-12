@@ -195,6 +195,102 @@ def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_D
     return 1
 
 
+_REDIR_RE = re.compile(r'\(→\s*([^)]+?)\)')
+_CTX_RE = re.compile(r'\((?:[^)]*(?:문맥|절단)[^)]*)\)')
+
+
+def _parse_glossary_rows(variants_section: str):
+    """Yield (canonical, variant, target, is_context) from §1 pipe-table rows.
+
+    target = the '(→X)' redirect if present, else the row's 권장 (canonical).
+    A single source of truth so `scan` proposes ONLY real glossary pairs —
+    an LLM editing the emitted manifest cannot invent an old-string."""
+    for raw in variants_section.split("\n"):
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        canon_cell, var_cell = cells[0], cells[1]
+        if set(canon_cell) <= set("-: ") or "←" in var_cell or "오인식" in var_cell:
+            continue  # separator / column-header row
+        m = re.search(r'\*\*(.+?)\*\*', canon_cell)
+        canonical = re.sub(r'\(.*', '', (m.group(1) if m else canon_cell)).strip()
+        if not canonical:
+            continue
+        for chunk in var_cell.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            rd = _REDIR_RE.search(chunk)
+            target = rd.group(1).strip() if rd else canonical
+            is_ctx = bool(_CTX_RE.search(chunk))
+            token = re.sub(r'\([^)]*\)', '', chunk).strip()
+            for sub in token.split("/"):
+                sub = sub.strip().rstrip(".,;")
+                if len(sub) >= 2 and sub != target:
+                    yield canonical, sub, target, is_ctx
+
+
+def scan_candidates(target: Path, glossary: Path) -> dict:
+    """Grep the transcript for every §1 variant and return count-grounded
+    candidate replacements. Splits into `auto` (unambiguous, apply as-is) and
+    `review` (context-homograph / 2-char-ASCII — LLM must confirm each).
+
+    Eliminates the hallucinated-old-string failure mode: every entry's `old`
+    is an actual occurrence in the file, and its count matches what
+    fix_template will replace (same masking + count_variant)."""
+    enc = U.detect_encoding(target)
+    text = target.read_text(encoding=enc)
+    masked, _spans = U.mask_comments(text)  # (*...) spans excluded, as apply does
+    vsec = extract_section(glossary.read_text(encoding="utf-8"), "## 1.", "## 2.")
+    auto, review, seen = [], [], set()
+    for _canon, variant, tgt, is_ctx in _parse_glossary_rows(vsec):
+        key = (variant, tgt)
+        if key in seen:
+            continue
+        seen.add(key)
+        n = U.count_variant(masked, variant, tgt)
+        if n <= 0:
+            continue
+        # ≤2-char variants (any script) are substring-fragile — e.g. '우재'⊂'우재면',
+        # short abbreviations — so they need per-occurrence human confirmation.
+        short = len(variant) <= 2
+        if is_ctx or short:
+            review.append([variant, tgt, n, "문맥" if is_ctx else "단문자"])
+        else:
+            auto.append([variant, tgt, n])
+    return {"auto": auto, "review": review}
+
+
+def scan(target: Path, glossary: Path) -> int:
+    """CLI: print a count-grounded candidate manifest as JSON (stdout) + summary
+    (stderr). exit 0 = candidates found, 1 = none, 4 = error."""
+    if not target.exists():
+        print(f"ERROR: transcript not found: {target}")
+        return 4
+    if not glossary.exists():
+        print(f"ERROR: glossary not found: {glossary}")
+        return 4
+    try:
+        res = scan_candidates(target, glossary)
+    except UnicodeError as e:
+        print(f"ERROR: {e}")
+        return 4
+    manifest = {"replacements": res["auto"], "markers": [], "quick_scan": False}
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    na, nr = len(res["auto"]), len(res["review"])
+    print(f"SCAN: {na} auto candidate(s), {nr} context/short review item(s)", file=sys.stderr)
+    if nr:
+        print("REVIEW (confirm each — homograph/context, may be false positive):", file=sys.stderr)
+        for v, t, n, tag in res["review"]:
+            print(f"  {n}x  {v!r} -> {t!r}  [{tag}]", file=sys.stderr)
+    print("NOTE: auto = grep-grounded (safe). Add context-only fixes + confirmed "
+          "review items, then apply via fix_template.py --json.", file=sys.stderr)
+    return 0 if (na or nr) else 1
+
+
 def print_sections(glossary: Path) -> int:
     """Print only the correction-relevant glossary sections (§1 table, §7 people,
     §8 ownership) to stdout — lets the agent load evidence without Read-ing the
@@ -332,6 +428,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ("check", "check stamp; exit 0=skip 1=new 2=changed 3=glossary/version 4=error"),
         ("write", "write stamp after correction"),
         ("quick-scan", "rapid variant density check (0=skip, 1=proceed)"),
+        ("scan", "emit count-grounded candidate manifest JSON (anti-hallucination)"),
     ):
         sp = sub.add_parser(cmd, help=help_text, parents=[common])
         sp.add_argument("target", help="transcript file (batch: folder)")
@@ -372,6 +469,8 @@ def main() -> int:
         return batch_check(target, glossary, dry_run=dry_run)
     if args.cmd == "quick-scan":
         return quick_scan(target, glossary, threshold=threshold)
+    if args.cmd == "scan":
+        return scan(target, glossary)
     if args.cmd == "check":
         return check_file(target, glossary, dry_run=dry_run)
     if args.cmd == "write":
