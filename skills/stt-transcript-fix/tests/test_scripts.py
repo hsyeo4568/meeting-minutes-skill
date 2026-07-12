@@ -101,14 +101,29 @@ def test_mask_comments_imbalanced_cut_at_blank_line(capsys):
     assert restored == text
 
 
-def test_mask_comments_over_200_chars_cut_with_warning(capsys):
+def test_mask_comments_over_200_chars_cut_freezes_line(capsys):
     body = "a" * 250
-    text = "(*" + body + ")"
+    text = "(*" + body + ") 뒤따르는 본문"
     masked, spans = U.mask_comments(text)
     out = capsys.readouterr().out
-    assert "WARNING" in out and "200" in out
+    assert "WARNING" in out and "200" in out and "frozen" in out
     assert len(spans) == 1
-    assert len(spans[0][1]) <= 202  # cut near the 200-char limit
+    # fail-closed (SKILL.md contract): span extends to end-of-line — the tail
+    # after the forced cut is masked too, so it cannot be corrected.
+    assert spans[0][1] == text
+    restored = masked
+    for p, s in spans:
+        restored = restored.replace(p, s)
+    assert restored == text
+
+
+def test_mask_comments_forced_cut_freeze_stops_at_newline(capsys):
+    text = "(*" + "b" * 250 + "\n다음 줄은 자유"
+    masked, spans = U.mask_comments(text)
+    capsys.readouterr()
+    assert len(spans) == 1
+    assert "\n" not in spans[0][1]          # freeze is line-scoped
+    assert masked.endswith("\n다음 줄은 자유")  # next line NOT frozen
     restored = masked
     for p, s in spans:
         restored = restored.replace(p, s)
@@ -116,18 +131,12 @@ def test_mask_comments_over_200_chars_cut_with_warning(capsys):
 
 
 def test_mask_comments_200_char_cut_tight(capsys):
-    """Document exact cut semantics for the > 200 guard.
+    """Document exact cut semantics for the > 200 guard (fail-closed variant).
 
-    The guard fires after j += 1 on a non-closing char, so it fires when the scanned
-    distance from (* is 201, capturing at most 202 chars in the span
-    (the `(*` prefix + up to 200 body chars).  A legitimate (*body) where
-    body is exactly 198 chars (total span 201) closes normally before the guard
-    can fire.
-
-    Finding #2 analysis: the warning says "exceeds 200 chars" and the guard
-    condition `j - i > 200` fires when distance == 201, allowing spans up to 202
-    chars.  This is the intended conservative behaviour — a body of 200 chars
-    IS cut (span ≤ 202), but a body of 198 chars + `)` closes cleanly.
+    The guard fires after j += 1 on a non-closing char (scanned distance 201),
+    then extends the span to end-of-line (line freeze). A legitimate (*body)
+    where body is exactly 198 chars (total span 201) closes normally before
+    the guard can fire.
     """
     # 198-char body + closing `)` = 201-char span: closes before guard fires.
     body_ok = "b" * 198
@@ -137,15 +146,15 @@ def test_mask_comments_200_char_cut_tight(capsys):
     assert len(spans_ok) == 1
     assert spans_ok[0][1] == text_ok  # fully captured, no cut
 
-    # 200-char body with no closing `)`: guard MUST fire, span ≤ 202 chars.
+    # 200-char body with no closing `)`: guard MUST fire; span freezes to EOL
+    # (here: whole text — no newline follows).
     body_cut = "c" * 200
     text_cut = "(*" + body_cut  # deliberately unclosed
     masked_cut, spans_cut = U.mask_comments(text_cut)
     out = capsys.readouterr().out
     assert "WARNING" in out and "200" in out
     assert len(spans_cut) == 1
-    # `> 200` fires when j-i == 201; span is text[i:j] ≤ 202 chars.
-    assert len(spans_cut[0][1]) <= 202
+    assert spans_cut[0][1] == text_cut  # line-frozen to EOF
 
 
 def test_mask_comments_no_markers_unchanged():
@@ -434,6 +443,124 @@ def test_detect_encoding_utf16_le_bom(tmp_path):
     p = tmp_path / "u16.txt"
     p.write_bytes(b"\xff\xfe" + "한글 텍스트".encode("utf-16-le"))
     assert U.detect_encoding(p) == "utf-16-le"
+
+
+def test_detect_encoding_cp949(tmp_path):
+    """Codex review #3: CP949 bytes often decode 'successfully' as UTF-8/UTF-16
+    mojibake. Hangul-ratio arbitration must pick cp949."""
+    p = tmp_path / "cp949.txt"
+    p.write_bytes("회의 녹취록 내용입니다. 충전기 점검.\n".encode("cp949"))
+    assert U.detect_encoding(p) == "cp949"
+
+
+def test_detect_encoding_bare_utf16_le(tmp_path):
+    # no BOM; ASCII space/newline produce NUL bytes → utf-16 candidate set
+    p = tmp_path / "bare16.txt"
+    p.write_bytes("한글 텍스트 회의\n".encode("utf-16-le"))
+    assert U.detect_encoding(p) == "utf-16-le"
+
+
+def test_detect_encoding_undecodable_raises(tmp_path):
+    # 0xFF invalid as UTF-8 lead and CP949 lead; no NUL → nothing decodes
+    p = tmp_path / "junk.txt"
+    p.write_bytes(b"\xff\xff\xff\xff")
+    with pytest.raises(UnicodeError, match="fail-closed"):
+        U.detect_encoding(p)
+
+
+# =========================================================================
+# 7b. codex review 2026-07-12 regressions
+# =========================================================================
+
+def test_apply_corrections_longest_old_first():
+    """#6: shorter overlapping rule must not destroy a longer target first."""
+    original = "변동성 관련 운동폭 확인과 운동 지시"
+    masked, spans = U.mask_comments(original)
+    reps = [["운동", "응동", 2], ["운동폭", "변동폭", 1]]  # deliberately short-first order
+    cs = FT.CorrectionSet(reps=reps, ctx=[], markers=[], spans=spans)
+    changed = FT.apply_corrections(masked, cs, original, "\n")
+    assert "변동폭" in changed
+    assert "응동폭" not in changed
+    assert "응동 지시" in changed
+
+
+def test_main_missing_json_path_fails_loud(tmp_path):
+    """Extra finding: nonexistent --json must not report success."""
+    transcript = tmp_path / "t.txt"
+    transcript.write_text("내용\n", encoding="utf-8")
+    r = run_fix([transcript, "--json", tmp_path / "nope.json"])
+    assert r.returncode == 1
+    assert "ERROR" in r.stdout and "not found" in r.stdout
+
+
+def test_batch_new_low_density_file_still_reported(tmp_path, capsys):
+    """#1: a NEW file with zero glossary variants must surface as RUN (rc 1),
+    never be silently QS-filtered to rc 0."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text("## 1. STT\n규정 ← 구정\n## 2. end\n", encoding="utf-8")
+    target = tmp_path / "new.txt"
+    target.write_text("변형이 전혀 없는 정상 회의 내용 반복 " * 50, encoding="utf-8")
+    rc = FS.batch_check(tmp_path, glossary)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "RUN: new.txt" in out
+    assert "QS-SKIP" not in out
+    assert "1 new" in out
+
+
+def test_migrate_refuses_changed_file(tmp_path, capsys):
+    """#2: migrate must not forge review state for changed content."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text("원본 내용", encoding="utf-8")
+    _make_stamp(target, glossary, version="2.1")
+    target.write_text("검토 안 된 새 내용", encoding="utf-8")  # changed AFTER stamp
+    rc = FS.migrate_stamps(tmp_path, glossary)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "NEEDS-REVIEW" in out
+    # stamp NOT refreshed → check still demands a run
+    assert FS.check_file(target, glossary) != 0
+
+
+def test_migrate_refreshes_unchanged_file(tmp_path, capsys):
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text("검토 완료된 내용", encoding="utf-8")
+    _make_stamp(target, glossary, version="1.0")  # only version is stale
+    rc = FS.migrate_stamps(tmp_path, glossary)
+    capsys.readouterr()
+    assert rc == 0
+    assert FS.check_file(target, glossary) == 0  # now current-version SKIP
+
+
+def test_release_lock_foreign_pid_left_alone(tmp_path, capsys):
+    """#4: release_lock must not delete a lock owned by another process."""
+    p = tmp_path / "t.txt"
+    p.write_text("x", encoding="utf-8")
+    lock = tmp_path / "t.txt.lock"
+    lock.write_text("999999999", encoding="ascii")  # foreign owner token
+    U.release_lock(p)
+    assert lock.exists()
+    assert "not us" in capsys.readouterr().out
+    lock.unlink()
+
+
+def test_marker_skips_bracketed_timestamp_header(capsys):
+    """#7: widened header guard — [HH:MM:SS] and H:MM forms protected."""
+    original = "[00:00:15] 홍길동 발언\n9:05 화자 발언\n일반 본문 줄\n"
+    masked, spans = U.mask_comments(original)
+    markers = [(1, "(*m1)"), (2, "(*m2)"), (3, "(*m3)")]
+    cs = FT.CorrectionSet(reps=[], ctx=[], markers=markers, spans=spans)
+    changed = FT.apply_corrections(masked, cs, original, "\n")
+    out = capsys.readouterr().out
+    lines = changed.splitlines()
+    assert lines[0] == "[00:00:15] 홍길동 발언"
+    assert lines[1] == "9:05 화자 발언"
+    assert lines[2].endswith("(*m3)")
+    assert out.count("SKIPPED") == 2
 
 
 # =========================================================================

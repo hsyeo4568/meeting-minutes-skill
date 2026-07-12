@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Safe correction script for stt-transcript-fix. v2.1
+"""Safe correction script for stt-transcript-fix. v2.2
 
 Modes:
   1. Hardcoded: edit REPLACEMENTS/MARKERS/CONTEXTUAL below, run directly
@@ -57,7 +57,7 @@ def parse_args(argv=None):
     p.add_argument("--force", action="store_true", help="apply despite count mismatch")
     p.add_argument("--quick-scan", dest="quick_scan", action="store_true",
                    help="density check only (0=skip, 1=proceed)")
-    p.add_argument("-V", "--version", action="version", version="fix_template v2.1")
+    p.add_argument("-V", "--version", action="version", version="fix_template v2.2")
     return p.parse_args(argv)
 
 
@@ -108,11 +108,18 @@ def verify_counts(masked: str, reps: list, ctx: list, force: bool) -> bool:
 
 
 def apply_corrections(masked: str, cs: CorrectionSet, original: str, le: str) -> str:
-    """Apply replacements, restore comments, then insert markers. Returns new text."""
+    """Apply replacements, restore comments, then insert markers. Returns new text.
+
+    Longest old-string first: an overlapping shorter rule must not rewrite the
+    inside of a longer target before the longer rule runs (운동→응동 destroying
+    운동폭→변동폭 — codex review 2026-07-12 #6). Counts were verified against the
+    same pre-apply text, so ordering does not affect the verify gate.
+    """
+    by_len = lambda r: -len(r[0])  # noqa: E731
     changed = masked
-    for old_str, new_str, _ in cs.reps:
+    for old_str, new_str, _ in sorted(cs.reps, key=by_len):
         changed = U.safe_replace(changed, old_str, new_str)
-    for old_str, new_str, expected in cs.ctx:
+    for old_str, new_str, expected in sorted(cs.ctx, key=by_len):
         if U.count_variant(changed, old_str, new_str) == expected:
             changed = U.safe_replace(changed, old_str, new_str)
 
@@ -122,7 +129,10 @@ def apply_corrections(masked: str, cs: CorrectionSet, original: str, le: str) ->
 
     # Apply markers (speaker-header guard)
     if cs.markers:
-        spkr_pat = re.compile(r'^\d{2}:\d{2}\s')
+        # HH:MM / H:MM / HH:MM:SS, optionally [bracketed] — timestamp-first
+        # header formats (codex review 2026-07-12 #7; timestamp-last formats are
+        # out of scope for this skill's supported transcript format).
+        spkr_pat = re.compile(r'^\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s')
         lines = changed.splitlines()
         for line_num, marker_text in sorted(cs.markers, reverse=True):
             idx = line_num - 1
@@ -181,12 +191,7 @@ def main() -> int:
         print(f"ERROR: file not found: {target_path}")
         sys.exit(1)
 
-    enc = U.detect_encoding(target_path)
-    # newline="" preserves original line endings (no universal-newline translation)
-    with open(target_path, "r", encoding=enc, newline="") as f:
-        original = f.read()
-
-    # Load correction data
+    # Load correction data (before any file read — no lock needed yet)
     reps = list(REPLACEMENTS)
     markers_list = list(MARKERS)
     ctx = list(CONTEXTUAL)
@@ -194,7 +199,12 @@ def main() -> int:
     min_dens = args.threshold
 
     json_file = Path(args.json_file) if args.json_file else None
-    if json_file and json_file.exists():
+    if json_file:
+        if not json_file.exists():
+            # Silent fall-through to "no corrections" would report success on a
+            # typo'd path (codex review 2026-07-12, additional finding) — fail loud.
+            print(f"ERROR: --json file not found: {json_file}")
+            sys.exit(1)
         data = load_replacements(json_file)
         reps = data.get("replacements", [])
         markers_list = data.get("markers", [])
@@ -204,25 +214,36 @@ def main() -> int:
 
     all_rep = reps + ctx
 
-    # Quick-scan
-    if args.quick_scan or qs_enabled:
-        masked, _ = U.mask_comments(original)
-        if not U.quick_scan_variants(masked, all_rep, min_dens):
-            print("QUICK-SCAN SKIP: low density — no corrections needed")
-            return 0
-        if args.quick_scan:
-            print("QUICK-SCAN PASS: warrants full correction")
-            return 1
-
-    if not all_rep and not markers_list:
-        print("NOTE: no replacements or markers specified")
-        return 0
-
-    # Lock — released in finally on ALL paths (success, dry-run, HALT, exception)
+    # Lock BEFORE reading — reading first then locking later let a concurrent
+    # writer's changes be overwritten with our stale snapshot (TOCTOU, codex
+    # review 2026-07-12 #4). Released in finally on ALL paths.
     if not U.acquire_lock(target_path):
         print(f"ERROR: could not lock {target_path.name}")
         sys.exit(1)
     try:
+        try:
+            enc = U.detect_encoding(target_path)
+        except UnicodeError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
+        # newline="" preserves original line endings (no universal-newline translation)
+        with open(target_path, "r", encoding=enc, newline="") as f:
+            original = f.read()
+
+        # Quick-scan
+        if args.quick_scan or qs_enabled:
+            masked, _ = U.mask_comments(original)
+            if not U.quick_scan_variants(masked, all_rep, min_dens):
+                print("QUICK-SCAN SKIP: low density — no corrections needed")
+                return 0
+            if args.quick_scan:
+                print("QUICK-SCAN PASS: warrants full correction")
+                return 1
+
+        if not all_rep and not markers_list:
+            print("NOTE: no replacements or markers specified")
+            return 0
+
         original_lines = original.splitlines()
         le = U.detect_line_ending(original)
 

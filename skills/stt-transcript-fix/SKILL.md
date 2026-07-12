@@ -19,7 +19,7 @@ Profile glossary: meeting-minutes `config.yaml` → `project.profile` → that p
 
 ## Skip gate (fixstamp — before any Read)
 - `fixstamp.py check "<target.txt>" "<glossary.md>"`: exit **0=skip** (report "SKIP (unchanged)", no Reads — without this gate, confirming an already-fixed file wastes ~30k tokens / 2–4 min), 1=new, 2=file-changed, 3=glossary/version-changed (1/2/3 all proceed), 4=path error. `--dry-run` = status only, no side effects.
-- `quick-scan <target> <glossary>` before reading large files: exit 0 = variant density below threshold (likely clean → skip full pass), 1 = proceed. Threshold conservative (0.0003) — false-positives OK (extra pass), false-negatives not.
+- `quick-scan <target> <glossary>` before reading large files: exit 0 = variant density below threshold (likely clean → skip full pass), 1 = proceed. Threshold conservative (0.0003) — false-positives OK (extra pass). Scope caveat: density measures §1 glossary variants ONLY — contextual fixes, `wrong(right)`, markers don't correlate with it, so a NEW (never-stamped) file must get a full pass regardless of density; use quick-scan to skip only files already reviewed at least once. (`batch` enforces this: stamp check first, density is advisory.)
 - `batch <folder> <glossary>` = check all `.txt` in a folder, summary with new/changed/skip counts.
 - After the pass completes (incl. a confirmed no-change pass), run `fixstamp.py write` **once, at the very end** (non-transcript / skipped-by-name files get their `write` immediately at classification). Sidecar `<target>.fixstamp`, lockfile `<target>.lock` (prevents concurrent edits). Adding glossary rows changes the hash → automatic full re-review (new variants may exist in older transcripts). Auto-detects UTF-16 BOM.
 

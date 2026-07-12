@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""fixstamp -- re-run skip gate for transcript correction. v2.1
+"""fixstamp -- re-run skip gate for transcript correction. v2.2
 
 Commands:
   check       exit 0=skip, 1=new, 2=file-changed, 3=glossary/version-changed, 4=error
   write       record hashes after correction; verifies file modification
-  batch       folder-level check (quick-scan pre-filters clean files)
+  batch       folder-level check (stamp check first; density is advisory only)
   quick-scan  rapid variant density check (0=skip, 1=proceed)
   --threshold N   override quick-scan density threshold (default 0.0003)
   --dry-run       no side effects
@@ -26,7 +26,11 @@ from _utils import QUICK_SCAN_MIN_DENSITY
 # _utils already reconfigures stdout at import time (guarded for pythonw/detached tasks).
 # No duplicate reconfigure needed here.
 
-SKILL_VERSION = "2.1"
+# Bump whenever correction RULES change (not just this file) — stamps from older
+# versions must invalidate so already-"reviewed" files get re-reviewed under the
+# new rules (codex review 2026-07-12 #2). 2.2: boundary-regex particle fix,
+# longest-first apply, encoding arbitration, fail-closed marker cuts.
+SKILL_VERSION = "2.2"
 
 
 def sha256(p: Path) -> str:
@@ -69,7 +73,11 @@ def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
     cur = {"file_sha256": sha256(target), "glossary_sha256": sha256(glossary),
            "skill_version": SKILL_VERSION}
 
-    enc = U.detect_encoding(target)
+    try:
+        enc = U.detect_encoding(target)
+    except UnicodeError as e:
+        print(f"ERROR: {e}")
+        return 4
     if enc != 'utf-8':
         print(f"NOTE: encoding={enc} — {target.name}")
 
@@ -139,21 +147,10 @@ def extract_section(text: str, start_marker: str, end_marker: str = "") -> str:
     return text[i:j].rstrip()
 
 
-def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_DENSITY) -> int:
-    if not target.exists():
-        print(f"ERROR: transcript not found: {target}")
-        return 4
-    if not glossary.exists():
-        print(f"ERROR: glossary not found: {glossary}")
-        return 4
+def _glossary_hits(text: str, variants_section: str) -> int:
+    """Count occurrences of §1 glossary variant tokens in text.
 
-    enc = U.detect_encoding(target)
-    with open(target, "r", encoding=enc) as f:
-        text = f.read()
-
-    glossary_text = glossary.read_text(encoding="utf-8")
-    variants_section = extract_section(glossary_text, "## 1.", "## 2.")
-
+    Single source of truth for the density scan (quick_scan / batch_check)."""
     total_hits = 0
     for line in variants_section.split("\n"):
         if "←" in line:
@@ -164,10 +161,30 @@ def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_D
             for token in vp.split():
                 token = token.strip().rstrip(',;')
                 if token and len(token) >= 2:
-                    c = text.count(token)
-                    if c > 0:
-                        total_hits += c
+                    total_hits += text.count(token)
+    return total_hits
 
+
+def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_DENSITY) -> int:
+    if not target.exists():
+        print(f"ERROR: transcript not found: {target}")
+        return 4
+    if not glossary.exists():
+        print(f"ERROR: glossary not found: {glossary}")
+        return 4
+
+    try:
+        enc = U.detect_encoding(target)
+    except UnicodeError as e:
+        print(f"ERROR: {e}")
+        return 4
+    with open(target, "r", encoding=enc) as f:
+        text = f.read()
+
+    glossary_text = glossary.read_text(encoding="utf-8")
+    variants_section = extract_section(glossary_text, "## 1.", "## 2.")
+
+    total_hits = _glossary_hits(text, variants_section)
     density = total_hits / max(len(text), 1)
     print(f"QUICK-SCAN: {total_hits} hits, density={density:.5f} (threshold={threshold})")
     if density < threshold:
@@ -216,56 +233,60 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
     variants_section = extract_section(glossary_text, "## 1.", "## 2.")
     U.set_glossary_variants_cache(variants_section)
 
-    skip_count, new_count, run_count, qs_skip = 0, 0, 0, 0
+    skip_count, new_count, run_count, err_count, low_density = 0, 0, 0, 0, 0
     total = len(txt_files)
     for i, f in enumerate(txt_files):
         pct = (i + 1) * 100 // total
-        # Use cached glossary for quick-scan
-        enc = U.detect_encoding(f)
-        try:
-            with open(f, "r", encoding=enc) as fh:
-                text = fh.read()
-        except Exception:
-            print(f"  [{pct}%] ERROR reading: {f.name}")
-            continue
-
-        # Quick-scan with cached variants
-        total_hits = 0
-        for line in variants_section.split("\n"):
-            if "←" in line:
-                vp = line.split("←")[1]
-                vp = re.sub(r'\([^)]*\)', '', vp)
-                for sep in [",", ";", "/"]:
-                    vp = vp.replace(sep, " ")
-                for token in vp.split():
-                    token = token.strip().rstrip(',;')
-                    if token and len(token) >= 2:
-                        total_hits += text.count(token)
-
-        density = total_hits / max(len(text), 1)
-        if density < QUICK_SCAN_MIN_DENSITY:
-            qs_skip += 1
-            print(f"  [{pct}%] QS-SKIP: {f.name} (d={density:.4f})")
-            continue
-
+        # Stamp check FIRST. Quick-scan must never pre-filter: contextual
+        # corrections, markers and number protection do not correlate with
+        # glossary variant density, so a density skip on a new/changed file
+        # silently marks unreviewed content as done (codex review 2026-07-12 #1).
         rc = check_file(f, glossary, dry_run=dry_run)
         if rc == 0:
             skip_count += 1
-        elif rc == 1:
+            print(f"  [{pct}%] SKIP: {f.name}")
+            continue
+        if rc == 4:
+            err_count += 1
+            print(f"  [{pct}%] ERROR: {f.name}")
+            continue
+
+        # Density scan is ADVISORY only — annotates, never filters.
+        note = ""
+        try:
+            enc = U.detect_encoding(f)
+            with open(f, "r", encoding=enc) as fh:
+                text = fh.read()
+            density = _glossary_hits(text, variants_section) / max(len(text), 1)
+            if density < QUICK_SCAN_MIN_DENSITY:
+                low_density += 1
+                note = f" (low variant density d={density:.4f} — contextual/markers still need review)"
+        except (UnicodeError, OSError):
+            note = " (density scan unreadable)"
+
+        if rc == 1:
             new_count += 1
-        elif rc in (2, 3):
+        else:
             run_count += 1
-        print(f"  [{pct}%] {'SKIP' if rc==0 else 'RUN'}: {f.name}")
+        print(f"  [{pct}%] RUN: {f.name}{note}")
 
     U.set_glossary_variants_cache(None)
     label = "DRY-RUN " if dry_run else ""
     print(f"\n{label}SUMMARY: {new_count} new, {run_count} changed, {skip_count} unchanged, "
-          f"{qs_skip} QS-filtered, {total} total")
-    return 0 if (new_count + run_count) == 0 else 1
+          f"{err_count} errors, {low_density} low-density, {total} total")
+    return 0 if (new_count + run_count + err_count) == 0 else 1
 
 
 def migrate_stamps(folder: Path, glossary: Path) -> int:
-    """Re-stamp all .fixstamp files in folder to current skill version."""
+    """Version-refresh stamps — ONLY when file and glossary are byte-identical
+    to what the old stamp reviewed.
+
+    Blind re-stamping forged "reviewed under the new version" for files that
+    were never re-reviewed (codex review 2026-07-12 #2). Now: hashes must match
+    the OLD stamp; anything changed is left stale so `check` returns RUN.
+    Version-only refresh still requires the operator to assert the new rules
+    don't change outcomes for these files — the warning below states that.
+    """
     if not folder.is_dir():
         print(f"ERROR: not a directory: {folder}")
         return 4
@@ -273,14 +294,29 @@ def migrate_stamps(folder: Path, glossary: Path) -> int:
     if not stamp_files:
         print("No .fixstamp files found")
         return 0
-    updated = 0
+    print(f"NOTE: migrate asserts v{SKILL_VERSION} rules do not change outcomes "
+          "for unchanged files — if rules affect existing content, re-run correction instead")
+    updated, needs_review = 0, 0
+    glossary_hash = sha256(glossary)
     for sf in stamp_files:
         target = sf.with_name(sf.name.replace(".fixstamp", ""))
-        if target.exists():
+        if not target.exists():
+            continue
+        try:
+            old = json.loads(sf.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            needs_review += 1
+            print(f"  NEEDS-REVIEW: {target.name} — corrupt stamp")
+            continue
+        if (old.get("file_sha256") == sha256(target)
+                and old.get("glossary_sha256") == glossary_hash):
             write_stamp(target, glossary)
             updated += 1
-    print(f"MIGRATED: {updated} stamp files updated to v{SKILL_VERSION}")
-    return 0
+        else:
+            needs_review += 1
+            print(f"  NEEDS-REVIEW: {target.name} — content/glossary changed since stamp; not migrating")
+    print(f"MIGRATED: {updated} version-refreshed to v{SKILL_VERSION}, {needs_review} need re-review")
+    return 0 if needs_review == 0 else 1
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -23,27 +23,51 @@ QUICK_SCAN_MIN_DENSITY = 0.0003
 _LOCK_STALE_SECONDS = 600
 
 
+_HANGUL_BLOCKS = (('가', '힣'), ('ㄱ', 'ㅎ'), ('ㅏ', 'ㅣ'))
+
+
+def _hangul_ratio(s: str) -> float:
+    """Fraction of non-ASCII chars that are Hangul. 1.0 for pure-ASCII text."""
+    non_ascii = [ch for ch in s if ord(ch) > 127]
+    if not non_ascii:
+        return 1.0
+    hits = sum(1 for ch in non_ascii if any(lo <= ch <= hi for lo, hi in _HANGUL_BLOCKS))
+    return hits / len(non_ascii)
+
+
 def detect_encoding(p: Path) -> str:
-    """Detect file encoding. Handles BOM and bare UTF-16."""
+    """Detect file encoding: BOM first, then Hangul-plausibility arbitration.
+
+    A bare successful decode is NOT proof — CP949 bytes frequently decode
+    "successfully" as UTF-8 or UTF-16-LE mojibake (codex review 2026-07-12 #3),
+    which would silently re-encode the whole official transcript as garbage.
+    Candidates are gated (bare UTF-16 requires NUL bytes — any ASCII char in
+    UTF-16 produces one; CP949/UTF-8 never contain NUL) and the decode whose
+    non-ASCII chars look most like Hangul wins.
+
+    Raises UnicodeError when nothing decodes — callers must fail closed (no write).
+    """
     raw = p.read_bytes()
     if raw[:2] == b'\xff\xfe':
         return 'utf-16-le'
     if raw[:2] == b'\xfe\xff':
         return 'utf-16-be'
-    try:
-        raw.decode('utf-8')
-        return 'utf-8'
-    except UnicodeDecodeError:
-        pass
-    try:
-        raw.decode('utf-16-le')
-        name = str(p)
-        if name not in _encoding_warned:
-            print(f"NOTE: no BOM, assuming UTF-16-LE: {p.name}")
-            _encoding_warned.add(name)
-        return 'utf-16-le'
-    except UnicodeDecodeError:
-        return 'utf-8'
+
+    candidates = ['utf-16-le', 'utf-16-be'] if b'\x00' in raw else ['utf-8', 'cp949']
+    scored = []
+    for enc in candidates:
+        try:
+            scored.append((_hangul_ratio(raw.decode(enc)), -candidates.index(enc), enc))
+        except UnicodeDecodeError:
+            continue
+    if not scored:
+        raise UnicodeError(
+            f"cannot determine encoding of {p.name} — refusing to process (fail-closed)")
+    _, _, best = max(scored)
+    if best != 'utf-8' and str(p) not in _encoding_warned:
+        print(f"NOTE: detected {best} (no BOM): {p.name}")
+        _encoding_warned.add(str(p))
+    return best
 
 
 def detect_line_ending(text: str) -> str:
@@ -67,6 +91,7 @@ def acquire_lock(p: Path, timeout: int = 60) -> bool:
                     print(f"NOTE: stale lock cleanup failed ({e}); retrying acquire")
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode("ascii"))  # owner token
             os.close(fd)
             return True
         except (FileExistsError, OSError):
@@ -75,12 +100,32 @@ def acquire_lock(p: Path, timeout: int = 60) -> bool:
 
 
 def release_lock(p: Path) -> None:
-    """Release lockfile."""
+    """Release lockfile — only if this process owns it (PID token match).
+
+    Guards against releasing a lock another process acquired after ours was
+    stale-cleaned (codex review 2026-07-12 #4). Legacy/empty locks (no token)
+    are released as before.
+    """
     lock = p.with_name(p.name + ".lock")
+    try:
+        owner = lock.read_text(encoding="ascii", errors="replace").strip()
+        if owner and owner != str(os.getpid()):
+            print(f"NOTE: lock owned by PID {owner}, not us — leaving for owner/stale-clean")
+            return
+    except FileNotFoundError:
+        return
+    except OSError:
+        pass  # unreadable → treat as legacy lock, fall through to unlink
     try:
         lock.unlink(missing_ok=True)
     except OSError as e:
         print(f"NOTE: lock release failed ({e}); leaving stale lock for auto-clean")
+
+
+def _line_end(text: str, j: int) -> int:
+    """Index of the next newline at/after j, or len(text)."""
+    nl = text.find("\n", j)
+    return len(text) if nl < 0 else nl
 
 
 def mask_comments(text: str):
@@ -105,10 +150,14 @@ def mask_comments(text: str):
                         break
                 j += 1
                 if j - i > 200:
-                    print(f"WARNING: (* marker exceeds 200 chars — cut at position {j}")
+                    # SKILL.md fail-closed contract: forced-cut line freezes for the
+                    # whole run — extend the masked span to end-of-line so the tail
+                    # cannot be corrected (codex review 2026-07-12 #5).
+                    j = _line_end(text, j)
+                    print(f"WARNING: (* marker exceeds 200 chars — cut at position {j}; line frozen (fail-closed)")
                     break
                 if depth > 0 and text[j:j+2] == "\n\n":
-                    print(f"WARNING: (* marker imbalanced — cut at blank line (position {j})")
+                    print(f"WARNING: (* marker imbalanced — cut at blank line (position {j}); line frozen (fail-closed)")
                     break
             ph = f"__CMT{i:08d}__"
             spans.append((ph, text[i:j]))
