@@ -214,6 +214,22 @@ def main() -> int:
 
     all_rep = reps + ctx
 
+    # Cross-rule contamination guard (operational-adversarial 2026-07-12 H6):
+    # if rule A's NEW contains rule B's OLD, applying A creates fresh matches
+    # for B — the count-verify gate (checked against the ORIGINAL text) passes,
+    # then apply corrupts silently. Fail loud; --force overrides deliberately.
+    for i, (_old_i, new_i, _e1) in enumerate(all_rep):
+        for j, (old_j, _new_j, _e2) in enumerate(all_rep):
+            if i != j and old_j in str(new_i):
+                msg = (f"CROSS-RULE RISK: rule {j + 1} old '{old_j}' occurs inside "
+                       f"rule {i + 1} new '{new_i}'")
+                if args.force:
+                    print(f"  FORCE: {msg}")
+                else:
+                    print(f"  {msg}")
+                    print("HALT: cross-rule contamination — merge/split the rules or rerun with --force")
+                    sys.exit(1)
+
     # Lock BEFORE reading — reading first then locking later let a concurrent
     # writer's changes be overwritten with our stale snapshot (TOCTOU, codex
     # review 2026-07-12 #4). Released in finally on ALL paths.

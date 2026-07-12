@@ -219,3 +219,20 @@ def test_check_degradation_no_daily_category(capsys):
 def test_check_degradation_empty_categories(capsys):
     assert DR.check_degradation({}) == 0
     assert "skipped" in capsys.readouterr().out
+
+
+def test_build_tokmap_missing_section_reports_not_crashes():
+    """H11 (operational-adversarial 2026-07-12): user deletes the channels
+    block (no-slack org) — validator must report UNRESOLVED tokens, not
+    crash with a KeyError traceback."""
+    cfg = {
+        "identity": {"me": "Alex", "org": "Acme"},
+        "project": {"name": "Demo", "slug": "acme", "profile": None},
+        "paths": {"vault": "/v", "work_folder": "/w",
+                  "vault_meetings_subpath": "m"},
+        # channels + locale deliberately absent
+    }
+    tokmap = DR.build_tokmap(cfg)          # must not raise
+    assert tokmap["slack_channel_id"] is None
+    assert tokmap["language"] is None
+    assert tokmap["me"] == "Alex"

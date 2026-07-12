@@ -31,7 +31,12 @@ def build_tokmap(cfg: dict) -> dict:
     """Build the token -> concrete-value map from a parsed config dict."""
 
     def g(*keys):
-        return dig(cfg, *keys)
+        # Missing sections (e.g. no-slack org deletes `channels`) must surface
+        # as UNRESOLVED-token reports, not a KeyError traceback (H11 2026-07-12).
+        try:
+            return dig(cfg, *keys)
+        except KeyError:
+            return None
 
     return {
         "me":                    g("identity", "me"),

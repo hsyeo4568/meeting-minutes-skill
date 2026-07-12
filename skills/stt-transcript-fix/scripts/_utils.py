@@ -23,15 +23,23 @@ QUICK_SCAN_MIN_DENSITY = 0.0003
 _LOCK_STALE_SECONDS = 600
 
 
-_HANGUL_BLOCKS = (('가', '힣'), ('ㄱ', 'ㅎ'), ('ㅏ', 'ㅣ'))
+# Plausible non-ASCII blocks for a real-world transcript: Hangul (syllables,
+# jamo), Latin-1 Supplement (café/José — English meetings with accents), and
+# General Punctuation (smart quotes/em-dash from word processors). Accidental
+# cross-decodes (cp949-as-utf-8, utf-8-as-utf-16) land mostly OUTSIDE these.
+_PLAUSIBLE_BLOCKS = (
+    ('가', '힣'), ('ㄱ', 'ㅎ'), ('ㅏ', 'ㅣ'),
+    ('À', 'ÿ'),   # Latin-1 Supplement letters
+    ('‐', '‧'),   # dashes, smart quotes, ellipsis
+)
 
 
-def _hangul_ratio(s: str) -> float:
-    """Fraction of non-ASCII chars that are Hangul. 1.0 for pure-ASCII text."""
+def _plausible_ratio(s: str) -> float:
+    """Fraction of non-ASCII chars in plausible transcript blocks. 1.0 for pure ASCII."""
     non_ascii = [ch for ch in s if ord(ch) > 127]
     if not non_ascii:
         return 1.0
-    hits = sum(1 for ch in non_ascii if any(lo <= ch <= hi for lo, hi in _HANGUL_BLOCKS))
+    hits = sum(1 for ch in non_ascii if any(lo <= ch <= hi for lo, hi in _PLAUSIBLE_BLOCKS))
     return hits / len(non_ascii)
 
 
@@ -48,6 +56,10 @@ def detect_encoding(p: Path) -> str:
     Raises UnicodeError when nothing decodes — callers must fail closed (no write).
     """
     raw = p.read_bytes()
+    if raw[:3] == b'\xef\xbb\xbf':
+        # utf-8-sig strips the BOM on read (line-1 speaker header stays clean)
+        # and re-adds it on write — byte-identical round-trip.
+        return 'utf-8-sig'
     if raw[:2] == b'\xff\xfe':
         return 'utf-16-le'
     if raw[:2] == b'\xfe\xff':
@@ -57,7 +69,7 @@ def detect_encoding(p: Path) -> str:
     scored = []
     for enc in candidates:
         try:
-            scored.append((_hangul_ratio(raw.decode(enc)), -candidates.index(enc), enc))
+            scored.append((_plausible_ratio(raw.decode(enc)), -candidates.index(enc), enc))
         except UnicodeDecodeError:
             continue
     if not scored:
@@ -156,7 +168,9 @@ def mask_comments(text: str):
                     j = _line_end(text, j)
                     print(f"WARNING: (* marker exceeds 200 chars — cut at position {j}; line frozen (fail-closed)")
                     break
-                if depth > 0 and text[j:j+2] == "\n\n":
+                if depth > 0 and (text[j:j+2] == "\n\n" or text[j:j+4] == "\r\n\r\n"):
+                    # CRLF variant included — Windows transcripts are the norm;
+                    # checking only "\n\n" let the span swallow the next paragraph.
                     print(f"WARNING: (* marker imbalanced — cut at blank line (position {j}); line frozen (fail-closed)")
                     break
             ph = f"__CMT{i:08d}__"

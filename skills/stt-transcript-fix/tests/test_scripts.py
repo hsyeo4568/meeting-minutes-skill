@@ -548,6 +548,79 @@ def test_release_lock_foreign_pid_left_alone(tmp_path, capsys):
     lock.unlink()
 
 
+# =========================================================================
+# 7c. operational-adversarial round (self-review 2026-07-12, TDD RED-first)
+# =========================================================================
+
+def test_detect_encoding_utf8_bom_returns_sig(tmp_path):
+    """H1: Notepad/phone exports write UTF-8 WITH BOM. Plain 'utf-8' leaves
+    \\ufeff glued to line 1 → speaker-header regex fails → header unprotected.
+    Contract: line 1 speaker header must be protected regardless of BOM."""
+    p = tmp_path / "bom.txt"
+    p.write_bytes(b"\xef\xbb\xbf" + "09:29 화자A 발언\n본문 줄\n".encode("utf-8"))
+    assert U.detect_encoding(p) == "utf-8-sig"
+
+
+def test_bom_file_speaker_header_protected_end_to_end(tmp_path):
+    p = tmp_path / "bom_e2e.txt"
+    p.write_bytes(b"\xef\xbb\xbf" + "09:29 화자A 발언\n본문 줄\n".encode("utf-8"))
+    corr = tmp_path / "c.json"
+    corr.write_text(json.dumps({
+        "replacements": [], "contextual": [],
+        "markers": [[1, "(*마커)"]],
+    }, ensure_ascii=False), encoding="utf-8")
+    r = run_fix([p, "--json", corr])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "SKIPPED" in r.stdout            # L1 recognized as speaker header
+    raw = p.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")   # BOM preserved on write
+    assert "(*마커)" not in raw.decode("utf-8-sig").splitlines()[0]
+
+
+def test_detect_encoding_latin1_utf8_not_misread_as_cp949(tmp_path):
+    """H2: English transcript with one accented char (é). Hangul-only scoring
+    gives utf-8 ratio 0 vs cp949 accidental-Hangul 1.0 → cp949 chosen → mojibake.
+    Contract: valid UTF-8 European text stays utf-8."""
+    p = tmp_path / "latin.txt"
+    p.write_bytes("Café meeting notes with José\n".encode("utf-8"))
+    assert U.detect_encoding(p) == "utf-8"
+
+
+def test_cross_rule_contamination_halts(tmp_path):
+    """H6: rule A's NEW containing rule B's OLD chains replacements —
+    verify passes on the original text, then apply corrupts silently.
+    Contract (count-verify gate honesty): refuse to apply, exit 1."""
+    t = tmp_path / "t.txt"
+    t.write_text("가나 라마 내용\n", encoding="utf-8")
+    corr = tmp_path / "c.json"
+    corr.write_text(json.dumps({
+        "replacements": [["가나", "다라마", 1], ["라마", "XX", 1]],
+        "contextual": [], "markers": [],
+    }, ensure_ascii=False), encoding="utf-8")
+    r = run_fix([t, "--json", corr])
+    assert r.returncode == 1, f"should HALT on cross-rule risk, got rc={r.returncode}\n{r.stdout}"
+    assert "CROSS-RULE" in r.stdout
+    # file untouched
+    assert t.read_text(encoding="utf-8") == "가나 라마 내용\n"
+
+
+def test_mask_comments_imbalanced_crlf_blank_line_cut(capsys):
+    """H9: Windows CRLF transcripts — imbalance guard checks only '\\n\\n',
+    so '\\r\\n\\r\\n' never triggers the cut and the span swallows the next
+    paragraph. Contract: cut at blank line regardless of line-ending style."""
+    text = "(*열림\r\n\r\n다음 문단"
+    masked, spans = U.mask_comments(text)
+    out = capsys.readouterr().out
+    assert "imbalanced" in out
+    assert len(spans) == 1
+    assert "다음 문단" not in spans[0][1]     # next paragraph NOT frozen
+    assert masked.endswith("\r\n\r\n다음 문단")
+    restored = masked
+    for ph, s in spans:
+        restored = restored.replace(ph, s)
+    assert restored == text
+
+
 def test_marker_skips_bracketed_timestamp_header(capsys):
     """#7: widened header guard — [HH:MM:SS] and H:MM forms protected."""
     original = "[00:00:15] 홍길동 발언\n9:05 화자 발언\n일반 본문 줄\n"
