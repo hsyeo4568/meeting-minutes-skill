@@ -31,7 +31,12 @@ _PLAUSIBLE_BLOCKS = (
     ('가', '힣'), ('ㄱ', 'ㅎ'), ('ㅏ', 'ㅣ'),
     ('À', 'ÿ'),   # Latin-1 Supplement letters
     ('‐', '‧'),   # dashes, smart quotes, ellipsis
+    ('一', '鿿'),  # CJK ideographs (한자 in Korean business docs)
 )
+
+# Minimum plausible-char ratio for a no-BOM candidate to be accepted. Binary
+# data with a NUL byte used to be "detected" as UTF-16 mojibake (codex v2 #24).
+_PLAUSIBLE_FLOOR = 0.5
 
 
 def _plausible_ratio(s: str) -> float:
@@ -75,7 +80,11 @@ def detect_encoding(p: Path) -> str:
     if not scored:
         raise UnicodeError(
             f"cannot determine encoding of {p.name} — refusing to process (fail-closed)")
-    _, _, best = max(scored)
+    ratio, _, best = max(scored)
+    if ratio < _PLAUSIBLE_FLOOR:
+        raise UnicodeError(
+            f"implausible text in {p.name} (best candidate {best}, plausible ratio "
+            f"{ratio:.2f} < {_PLAUSIBLE_FLOOR}) — refusing to process (fail-closed)")
     if best != 'utf-8' and str(p) not in _encoding_warned:
         print(f"NOTE: detected {best} (no BOM): {p.name}")
         _encoding_warned.add(str(p))
@@ -89,18 +98,53 @@ def detect_line_ending(text: str) -> str:
     return '\n'
 
 
+def _pid_alive(pid: int) -> bool:
+    """Best-effort process liveness. NEVER use os.kill(pid, 0) on Windows —
+    any non-CTRL signal there is TerminateProcess (it KILLS the process)."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 def acquire_lock(p: Path, timeout: int = 60) -> bool:
-    """Create lockfile. Auto-cleans stale locks (>10min)."""
+    """Create lockfile (owner PID token). Stale locks (>10min) are cleaned
+    only when the recorded owner PID is no longer alive — long runs (5min+/file
+    benchmarks + queueing) can legitimately exceed the mtime threshold
+    (codex v2 #13: live-owner locks were force-stolen)."""
     lock = p.with_name(p.name + ".lock")
     deadline = time.time() + timeout
+    warned_alive = False
     while time.time() < deadline:
         if lock.exists():
             age = time.time() - os.path.getmtime(str(lock))
             if age > _LOCK_STALE_SECONDS:
-                try:
-                    lock.unlink(missing_ok=True)
-                except OSError as e:
-                    print(f"NOTE: stale lock cleanup failed ({e}); retrying acquire")
+                owner = 0
+                with contextlib.suppress(OSError, ValueError):
+                    owner = int(lock.read_text(encoding="ascii", errors="replace").strip() or 0)
+                if owner and _pid_alive(owner):
+                    if not warned_alive:
+                        print(f"NOTE: lock older than {_LOCK_STALE_SECONDS}s but owner PID {owner} still alive — waiting")
+                        warned_alive = True
+                else:
+                    try:
+                        lock.unlink(missing_ok=True)
+                    except OSError as e:
+                        print(f"NOTE: stale lock cleanup failed ({e}); retrying acquire")
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, str(os.getpid()).encode("ascii"))  # owner token
@@ -140,8 +184,23 @@ def _line_end(text: str, j: int) -> int:
     return len(text) if nl < 0 else nl
 
 
+# Tier-C violations found by the most recent mask_comments() call.
+# fix_template checks this after masking and HALTs (fail-closed) — a printed
+# warning alone let nested-marker files be corrected and stamped (codex v2 #10).
+MASK_VIOLATIONS: list[tuple[str, int]] = []
+
+
 def mask_comments(text: str):
-    """Replace (*...) spans with placeholders. Returns (masked_text, spans_list)."""
+    """Replace (*...) spans with placeholders. Returns (masked_text, spans_list).
+
+    Tier-C findings (nested markers) are appended to MASK_VIOLATIONS.
+    Placeholders are salted until absent from the original text — a literal
+    __CMT...__ in the source corrupted the restore pass (codex v2 #11).
+    """
+    MASK_VIOLATIONS.clear()
+    salt = ""
+    while f"__CMT{salt}" in text:
+        salt += "X"
     spans = []
     result = []
     i = 0
@@ -154,6 +213,7 @@ def mask_comments(text: str):
                     if text[j:j+2] == "(*":
                         # Nested marker inside a span — SKILL.md promises Tier-C escalation.
                         print(f"WARNING: nested (* inside marker span at position {j} — Tier-C: verify span manually")
+                        MASK_VIOLATIONS.append(("nested", j))
                     depth += 1
                 elif text[j] == ")":
                     depth -= 1
@@ -173,7 +233,7 @@ def mask_comments(text: str):
                     # checking only "\n\n" let the span swallow the next paragraph.
                     print(f"WARNING: (* marker imbalanced — cut at blank line (position {j}); line frozen (fail-closed)")
                     break
-            ph = f"__CMT{i:08d}__"
+            ph = f"__CMT{salt}{i:08d}__"
             spans.append((ph, text[i:j]))
             result.append(ph)
             i = j
@@ -197,26 +257,42 @@ _WORD_CLASS = r'가-힣㐀-䶿a-zA-Z0-9'
 _WORD_EDGE_RE = re.compile(f'[{_WORD_CLASS}]')
 
 
-def _boundary_regex(old: str) -> re.Pattern:
-    """Word-boundary regex around `old`, guarding each side ONLY when old's edge
-    char is itself a word char.
+def _boundary_regex(old: str, new: str) -> re.Pattern:
+    """Word-boundary regex for `old`, guarding ONLY the sides where the risk
+    actually exists.
 
-    Korean particles attach with no space (e.g. '충전)에'), so an annotation whose
-    old string ends in punctuation like ')' must NOT carry a trailing lookahead —
-    a following particle would make an otherwise-correct match wrongly fail. Guard
-    each edge independently on whether that edge is a word char, so real substring
-    risk (e.g. '피던스' inside '임피던스') is still blocked while punctuation-edged
-    annotations replace cleanly.
+    old ⊂ new (피던스 ⊂ 임피던스): guard exactly the sides where the embedding
+    inside `new` has an adjacent word char — 임피던스 adds 임 BEFORE old, so
+    only a leading lookbehind is needed. A blanket trailing lookahead wrongly
+    rejected every Korean particle glued after the target (피던스는/가/를 —
+    codex v2 #7: the rule corrected NOTHING in normal sentences).
+
+    new ⊂ old (annotation '춘전(충전)'→'충전'): keep the edge-char rule — guard
+    a side only when old's own edge char is a word char (')' edge must not
+    carry a lookahead, or particles after it kill the match).
     """
-    lead = f'(?<![{_WORD_CLASS}])' if _WORD_EDGE_RE.match(old) else ''
-    trail = f'(?![{_WORD_CLASS}])' if _WORD_EDGE_RE.match(old[-1]) else ''
-    return get_cached_regex(lead + re.escape(old) + trail)
+    if old in new and old != new:
+        lead = trail = False
+        start = 0
+        while (idx := new.find(old, start)) != -1:
+            if idx > 0 and _WORD_EDGE_RE.match(new[idx - 1]):
+                lead = True
+            end = idx + len(old)
+            if end < len(new) and _WORD_EDGE_RE.match(new[end]):
+                trail = True
+            start = idx + 1
+    else:
+        lead = bool(_WORD_EDGE_RE.match(old))
+        trail = bool(_WORD_EDGE_RE.match(old[-1]))
+    lead_pat = f'(?<![{_WORD_CLASS}])' if lead else ''
+    trail_pat = f'(?![{_WORD_CLASS}])' if trail else ''
+    return get_cached_regex(lead_pat + re.escape(old) + trail_pat)
 
 
 def safe_replace(text: str, old: str, new: str) -> str:
     """Replace old→new, using word-boundary regex if substring risk exists."""
     if is_substring_of_either(old, new):
-        return _boundary_regex(old).sub(new, text)
+        return _boundary_regex(old, new).sub(new, text)
     return text.replace(old, new)
 
 
@@ -227,7 +303,7 @@ def count_variant(text: str, old: str, new: str) -> int:
     verify gate honest: reported count == count that will be replaced.
     """
     if is_substring_of_either(old, new):
-        return len(_boundary_regex(old).findall(text))
+        return len(_boundary_regex(old, new).findall(text))
     return text.count(old)
 
 
@@ -293,7 +369,7 @@ def clear_caches() -> None:
 # Re-export for external use — placed after all defs so every name is defined.
 __all__ = [
     'detect_encoding', 'detect_line_ending', 'acquire_lock', 'release_lock',
-    'mask_comments', 'is_substring_of_either', 'is_substring_risky',
+    'mask_comments', 'MASK_VIOLATIONS', 'is_substring_of_either', 'is_substring_risky',
     'safe_replace', 'count_variant', 'compute_line_diff', 'quick_scan_variants',
     'get_cached_regex', 'glossary_variants_cache', 'set_glossary_variants_cache',
     'clear_caches', 'QUICK_SCAN_MIN_DENSITY', '_LOCK_STALE_SECONDS',

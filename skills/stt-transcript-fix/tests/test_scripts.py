@@ -508,32 +508,12 @@ def test_batch_new_low_density_file_still_reported(tmp_path, capsys):
     assert "1 new" in out
 
 
-def test_migrate_refuses_changed_file(tmp_path, capsys):
-    """#2: migrate must not forge review state for changed content."""
-    glossary = tmp_path / "g.md"
-    glossary.write_text("# glossary", encoding="utf-8")
-    target = tmp_path / "t.txt"
-    target.write_text("원본 내용", encoding="utf-8")
-    _make_stamp(target, glossary, version="2.1")
-    target.write_text("검토 안 된 새 내용", encoding="utf-8")  # changed AFTER stamp
-    rc = FS.migrate_stamps(tmp_path, glossary)
-    out = capsys.readouterr().out
-    assert rc == 1
-    assert "NEEDS-REVIEW" in out
-    # stamp NOT refreshed → check still demands a run
-    assert FS.check_file(target, glossary) != 0
-
-
-def test_migrate_refreshes_unchanged_file(tmp_path, capsys):
-    glossary = tmp_path / "g.md"
-    glossary.write_text("# glossary", encoding="utf-8")
-    target = tmp_path / "t.txt"
-    target.write_text("검토 완료된 내용", encoding="utf-8")
-    _make_stamp(target, glossary, version="1.0")  # only version is stale
-    rc = FS.migrate_stamps(tmp_path, glossary)
-    capsys.readouterr()
-    assert rc == 0
-    assert FS.check_file(target, glossary) == 0  # now current-version SKIP
+def test_migrate_command_removed():
+    """codex v2 #3: migrate forged 'reviewed under new rules' without a pass —
+    the command must not exist anymore (re-stamp only via `write`)."""
+    assert not hasattr(FS, "migrate_stamps")
+    r = run_stamp(["migrate", "x", "y"])
+    assert r.returncode == 2  # argparse: invalid choice
 
 
 def test_release_lock_foreign_pid_left_alone(tmp_path, capsys):
@@ -634,6 +614,233 @@ def test_marker_skips_bracketed_timestamp_header(capsys):
     assert lines[1] == "9:05 화자 발언"
     assert lines[2].endswith("(*m3)")
     assert out.count("SKIPPED") == 2
+
+
+# =========================================================================
+# 7d. codex v2 (2026-07-12) regressions — semantic invariants in the executor
+# =========================================================================
+
+def _run_manifest(tmp_path, text, manifest, extra_args=()):
+    t = tmp_path / "t.txt"
+    t.write_text(text, encoding="utf-8")
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return t, run_fix([t, "--json", c, *extra_args])
+
+
+def test_speaker_header_never_rewritten_by_replacement(tmp_path):
+    """v2 #1: a glossary name rule must correct the body but NEVER the header.
+    Header hit hidden from counts → expected=2 now mismatches (fail loud)."""
+    text = "00:00 박상우\n본문 박상우 발언\n"
+    t, r = _run_manifest(tmp_path, text, {
+        "replacements": [["박상우", "박상호", 2]], "contextual": [], "markers": []})
+    assert r.returncode == 1
+    assert "COUNT MISMATCH" in r.stdout
+    # body-only count applies cleanly, header untouched
+    t2, r2 = _run_manifest(tmp_path / "ok" if (tmp_path / "ok").mkdir() or True else tmp_path,
+                           text, {"replacements": [["박상우", "박상호", 1]],
+                                  "contextual": [], "markers": []})
+    assert r2.returncode == 0, r2.stdout
+    lines = t2.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "00:00 박상우"          # header immutable
+    assert lines[1] == "본문 박상호 발언"        # body corrected
+
+
+def test_numeric_rule_rejected_without_flag(tmp_path):
+    """v2 #2: numbers are Tier-C — silent value edits must be refused."""
+    _, r = _run_manifest(tmp_path, "이번 주 20.3대 확인\n", {
+        "replacements": [["20.3대", "12.3대", 1]], "contextual": [], "markers": []})
+    assert r.returncode == 1
+    assert "numeric" in r.stdout.lower() or "NUMERIC" in r.stdout
+    # explicit numeric-ok (user-confirmed) passes
+    t2, r2 = _run_manifest(tmp_path / "ok" if (tmp_path / "ok").mkdir() or True else tmp_path,
+                           "이번 주 20.3대 확인\n",
+                           {"replacements": [["20.3대", "12.3대", 1, "numeric-ok"]],
+                            "contextual": [], "markers": []})
+    assert r2.returncode == 0, r2.stdout
+    assert "12.3대" in t2.read_text(encoding="utf-8")
+
+
+def test_duplicate_old_contradiction_rejected(tmp_path):
+    """v2 #5: same old → different new is first-wins silent corruption."""
+    _, r = _run_manifest(tmp_path, "오답 내용\n", {
+        "replacements": [["오답", "정답A", 1], ["오답", "정답B", 1]],
+        "contextual": [], "markers": []})
+    assert r.returncode == 1
+    assert "duplicate old" in r.stdout
+
+
+def test_marker_only_quick_scan_still_inserts(tmp_path):
+    """v2 #4: quick_scan=true + markers-only used to exit 0 doing nothing."""
+    t, r = _run_manifest(tmp_path, "00:01 화자\n본문 발언 내용\n", {
+        "replacements": [], "contextual": [],
+        "markers": [[2, "(*결정_테스트)"]], "quick_scan": True})
+    assert r.returncode == 0, r.stdout
+    assert "(*결정_테스트)" in t.read_text(encoding="utf-8")
+
+
+def test_hangul_old_with_particle_corrected(tmp_path):
+    """v2 #7: 피던스는/가/를 — particle glued after a Hangul old must match
+    (only the leading side needs a guard for 피던스 ⊂ 임피던스)."""
+    text = "00:01 화자\n피던스는 문제다\n임피던스 유지\n피던스를 확인\n"
+    t, r = _run_manifest(tmp_path, text, {
+        "replacements": [["피던스", "임피던스", 2]], "contextual": [], "markers": []})
+    assert r.returncode == 0, r.stdout
+    body = t.read_text(encoding="utf-8")
+    assert "임피던스는 문제다" in body
+    assert "임피던스를 확인" in body
+    assert "임임피던스" not in body
+
+
+def test_marker_out_of_range_halts(tmp_path):
+    """v2 #8/#9: out-of-range marker must fail loud, not vanish into DONE."""
+    t, r = _run_manifest(tmp_path, "00:01 화자\n본문\n", {
+        "replacements": [], "contextual": [], "markers": [[999, "(*결정)"]]})
+    assert r.returncode == 1
+    assert "out of range" in r.stdout
+    assert "(*결정)" not in t.read_text(encoding="utf-8")
+
+
+def test_marker_blank_line_skipped(tmp_path):
+    """v2 #8: a marker needs a host utterance — blank lines refused."""
+    t, r = _run_manifest(tmp_path, "00:01 화자\n본문 발언\n\n다음 발언\n", {
+        "replacements": [], "contextual": [], "markers": [[3, "(*결정)"]]})
+    assert r.returncode == 0
+    assert "blank" in r.stdout
+    assert "(*결정)" not in t.read_text(encoding="utf-8")
+
+
+def test_marker_cap_enforced(tmp_path):
+    """v2 #27: cap max(15, lines//16) was prose-only — now enforced."""
+    lines = "00:01 화자\n" + "본문 발언 줄\n" * 19        # 20 lines → cap 15
+    markers = [[i, f"(*결정_{i})"] for i in range(2, 18)]  # 16 markers
+    _, r = _run_manifest(tmp_path, lines, {
+        "replacements": [], "contextual": [], "markers": markers})
+    assert r.returncode == 1
+    assert "cap" in r.stdout
+
+
+def test_nested_marker_halts_run(tmp_path):
+    """v2 #10: nested (* is Tier-C — warn-and-continue let the file be saved."""
+    t, r = _run_manifest(tmp_path, "(*외부 (*내부) 끝) 구정 내용\n", {
+        "replacements": [["구정", "규정", 1]], "contextual": [], "markers": []})
+    assert r.returncode == 1
+    assert "TIER-C" in r.stdout
+    assert "구정" in t.read_text(encoding="utf-8")  # untouched
+
+
+def test_placeholder_literal_collision_survives(tmp_path):
+    """v2 #11: a literal __CMT...__ in the source must not be corrupted by
+    the mask/restore round-trip (salted placeholders)."""
+    text = "(*정리) 본문 __CMT00000000__ 그대로\n"
+    masked, spans = U.mask_comments(text)
+    restored = masked
+    for ph, s in spans:
+        restored = restored.replace(ph, s)
+    assert restored == text
+    assert restored.count("(*정리)") == 1
+
+
+def test_mixed_line_endings_preserved_by_marker(tmp_path):
+    """v2 #12: one marker must not normalize every line ending in the file."""
+    raw = b"00:01 speaker\r\nbody line one\nbody line two\r\n"
+    t = tmp_path / "mix.txt"
+    t.write_bytes(raw)
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps({"replacements": [], "contextual": [],
+                             "markers": [[2, "(*결정)"]]}), encoding="utf-8")
+    r = run_fix([t, "--json", c])
+    assert r.returncode == 0, r.stdout
+    out = t.read_bytes()
+    assert b"body line one (*\xea\xb2\xb0\xec\xa0\x95)\n" in out   # LF kept on L2
+    assert out.startswith(b"00:01 speaker\r\n")                    # CRLF kept on L1
+    assert out.endswith(b"\r\n")                                   # CRLF kept on L3
+
+
+def test_ctx_mismatch_does_not_halt(tmp_path):
+    """v2 #25: contextual is the softer gate — its mismatch warns and skips,
+    it must not block confirmed Tier-A rules."""
+    t, r = _run_manifest(tmp_path, "00:01 화자\n구정 본문과 공가 내용\n", {
+        "replacements": [["구정", "규정", 1]],
+        "contextual": [["공가", "단가", 5]],   # wrong expected — soft skip
+        "markers": []})
+    assert r.returncode == 0, r.stdout
+    body = t.read_text(encoding="utf-8")
+    assert "규정" in body      # Tier-A applied
+    assert "공가" in body      # ctx skipped (count mismatch at apply time)
+    assert "CTX WARN" in r.stdout
+
+
+def test_binary_nul_data_rejected(tmp_path):
+    """v2 #24: NUL-bearing binary junk must not be 'detected' as UTF-16."""
+    p = tmp_path / "junk.bin"
+    p.write_bytes(b"\x00\x01\x02\x03")
+    with pytest.raises(UnicodeError):
+        U.detect_encoding(p)
+
+
+def test_stale_lock_with_live_owner_not_stolen(tmp_path):
+    """v2 #13: mtime-stale lock whose owner PID is alive must be respected."""
+    p = tmp_path / "t.txt"
+    p.write_text("x", encoding="utf-8")
+    lock = tmp_path / "t.txt.lock"
+    lock.write_text(str(os.getpid()), encoding="ascii")   # we are alive
+    old = __import__("time").time() - 700
+    os.utime(lock, (old, old))                            # mtime-stale
+    assert U.acquire_lock(p, timeout=1) is False          # NOT stolen
+    assert lock.exists()
+    lock.unlink()
+
+
+def test_stale_lock_with_dead_owner_cleaned(tmp_path):
+    p = tmp_path / "t.txt"
+    p.write_text("x", encoding="utf-8")
+    lock = tmp_path / "t.txt.lock"
+    lock.write_text("999999999", encoding="ascii")        # dead/bogus PID
+    old = __import__("time").time() - 700
+    os.utime(lock, (old, old))
+    assert U.acquire_lock(p, timeout=5) is True           # stale + dead → cleaned
+    U.release_lock(p)
+
+
+def test_concurrent_edit_detected_before_write(tmp_path, monkeypatch):
+    """v2 #14: target changed between read and replace → abort, keep newer file."""
+    target = tmp_path / "t.txt"
+    target.write_text("original", encoding="utf-8")
+    bak = tmp_path / "t.txt.bak"
+    shutil.copy2(target, bak)
+    src_sha = __import__("hashlib").sha256(b"original").hexdigest()
+    target.write_text("edited by user meanwhile", encoding="utf-8")  # concurrent edit
+    with pytest.raises(FT.SourceChangedError):
+        FT.write_atomic(target, "our stale output", "utf-8", bak, [], [], [],
+                        src_sha=src_sha)
+    # user's newer content kept, no restore, no temp litter
+    assert target.read_text(encoding="utf-8") == "edited by user meanwhile"
+    assert list(tmp_path.glob("fix_*")) == []
+
+
+def test_unicode_encode_error_cleans_temp_and_restores(tmp_path):
+    """v2 #16: UnicodeEncodeError (ValueError) must clean the temp file."""
+    target = tmp_path / "t.txt"
+    target.write_bytes("원본".encode("cp949"))
+    bak = tmp_path / "t.txt.bak"
+    shutil.copy2(target, bak)
+    with pytest.raises(ValueError):
+        # 'ê' not representable in cp949 → UnicodeEncodeError inside write
+        FT.write_atomic(target, "contenu ê", "cp949", bak, [], [], [])
+    assert list(tmp_path.glob("fix_*")) == []
+    assert target.read_bytes() == "원본".encode("cp949")
+
+
+def test_sections_partial_glossary_flagged(tmp_path, capsys):
+    """v2 #19: §1-only glossary must not report rc 0 — name/ownership checks
+    silently vanish."""
+    g = tmp_path / "g.md"
+    g.write_text("## 1. STT\n규정 ← 구정\n## 2. end\n", encoding="utf-8")
+    rc = FS.print_sections(g)
+    out = capsys.readouterr().out
+    assert rc == 3
+    assert "missing glossary sections" in out and "§7" in out
 
 
 # =========================================================================
@@ -889,10 +1096,12 @@ def test_main_no_args_returns_4():
 
 def test_main_sections_routing(tmp_path):
     glossary = tmp_path / "g.md"
-    glossary.write_text("## 1. STT\na ← b\n## 2. end\n", encoding="utf-8")
+    glossary.write_text(
+        "## 1. STT\na ← b\n## 2. x\n## 7. 인명\n홍길동\n## 8. 담당\n조직A\n## 9. end\n",
+        encoding="utf-8")
     r = run_stamp(["sections", str(glossary)])
-    assert r.returncode == 0
-    assert "## 1." in r.stdout
+    assert r.returncode == 0     # complete glossary → rc 0 (partial → rc 3)
+    assert "## 1." in r.stdout and "## 7." in r.stdout
 
 
 def test_main_check_routing_new_file(tmp_path):

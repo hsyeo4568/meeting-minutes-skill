@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""fixstamp -- re-run skip gate for transcript correction. v2.2
+"""fixstamp -- re-run skip gate for transcript correction. v2.3
 
 Commands:
   check       exit 0=skip, 1=new, 2=file-changed, 3=glossary/version-changed, 4=error
@@ -28,9 +28,10 @@ from _utils import QUICK_SCAN_MIN_DENSITY
 
 # Bump whenever correction RULES change (not just this file) — stamps from older
 # versions must invalidate so already-"reviewed" files get re-reviewed under the
-# new rules (codex review 2026-07-12 #2). 2.2: boundary-regex particle fix,
-# longest-first apply, encoding arbitration, fail-closed marker cuts.
-SKILL_VERSION = "2.2"
+# new rules (codex review 2026-07-12 #2). 2.3: speaker-header immutability,
+# manifest schema/numeric guards, directional boundary, marker cap enforcement,
+# migrate removal.
+SKILL_VERSION = "2.3"
 
 
 def sha256(p: Path) -> str:
@@ -204,14 +205,24 @@ def print_sections(glossary: Path) -> int:
     t = glossary.read_text(encoding="utf-8")
 
     out = []
-    for sm, em in (("## 1.", "## 2."), ("## 7.", "## 8."), ("## 8.", "## 9.")):
+    missing = []
+    for label, (sm, em) in {"§1": ("## 1.", "## 2."), "§7": ("## 7.", "## 8."),
+                            "§8": ("## 8.", "## 9.")}.items():
         seg = extract_section(t, sm, em)
         if seg:
             out.append(seg)
+        else:
+            missing.append(label)
     if not out:
         print("ERROR: no §1/§7/§8 sections found — glossary format changed; Read the file directly")
         return 4
     print("\n\n".join(out))
+    if missing:
+        # Partial glossary must not look complete — people/ownership checks
+        # silently vanish otherwise (codex v2 #19). rc 3 = partial, use fallback.
+        print(f"NOTE: missing glossary sections {', '.join(missing)} — "
+              "name/ownership cross-validation degraded; Read the glossary directly if needed")
+        return 3
     return 0
 
 
@@ -277,46 +288,10 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
     return 0 if (new_count + run_count + err_count) == 0 else 1
 
 
-def migrate_stamps(folder: Path, glossary: Path) -> int:
-    """Version-refresh stamps — ONLY when file and glossary are byte-identical
-    to what the old stamp reviewed.
-
-    Blind re-stamping forged "reviewed under the new version" for files that
-    were never re-reviewed (codex review 2026-07-12 #2). Now: hashes must match
-    the OLD stamp; anything changed is left stale so `check` returns RUN.
-    Version-only refresh still requires the operator to assert the new rules
-    don't change outcomes for these files — the warning below states that.
-    """
-    if not folder.is_dir():
-        print(f"ERROR: not a directory: {folder}")
-        return 4
-    stamp_files = sorted(folder.glob("*.fixstamp"))
-    if not stamp_files:
-        print("No .fixstamp files found")
-        return 0
-    print(f"NOTE: migrate asserts v{SKILL_VERSION} rules do not change outcomes "
-          "for unchanged files — if rules affect existing content, re-run correction instead")
-    updated, needs_review = 0, 0
-    glossary_hash = sha256(glossary)
-    for sf in stamp_files:
-        target = sf.with_name(sf.name.replace(".fixstamp", ""))
-        if not target.exists():
-            continue
-        try:
-            old = json.loads(sf.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
-            needs_review += 1
-            print(f"  NEEDS-REVIEW: {target.name} — corrupt stamp")
-            continue
-        if (old.get("file_sha256") == sha256(target)
-                and old.get("glossary_sha256") == glossary_hash):
-            write_stamp(target, glossary)
-            updated += 1
-        else:
-            needs_review += 1
-            print(f"  NEEDS-REVIEW: {target.name} — content/glossary changed since stamp; not migrating")
-    print(f"MIGRATED: {updated} version-refreshed to v{SKILL_VERSION}, {needs_review} need re-review")
-    return 0 if needs_review == 0 else 1
+# migrate command REMOVED (codex v2 #3). A version bump means the correction
+# RULES changed — an unchanged file+glossary is NOT evidence the new rules
+# produce the same outcome; re-reviewing exactly those files is the point of
+# version invalidation. Re-stamp only via `write` after an actual pass.
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -327,9 +302,8 @@ def _build_parser() -> argparse.ArgumentParser:
             f"fixstamp v{SKILL_VERSION} — re-run skip gate for transcript correction.\n\n"
             "  check:      exit 0=skip 1=new 2=file-changed 3=version/glossary-changed 4=error\n"
             "  write:      record hashes after correction (verifies modification)\n"
-            "  batch:      folder check with quick-scan pre-filter + progress\n"
+            "  batch:      folder check (stamp first, density advisory) + progress\n"
             "  quick-scan: rapid variant density check\n"
-            "  migrate:    re-stamp all .fixstamp files in folder to current version\n"
             "  sections:   print correction-relevant glossary sections (§1/§7/§8) only\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -353,15 +327,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="cmd", metavar="COMMAND")
 
-    # check / write / quick-scan / migrate: target + glossary
+    # check / write / quick-scan: target + glossary
     for cmd, help_text in (
         ("check", "check stamp; exit 0=skip 1=new 2=changed 3=glossary/version 4=error"),
         ("write", "write stamp after correction"),
         ("quick-scan", "rapid variant density check (0=skip, 1=proceed)"),
-        ("migrate", "re-stamp all .fixstamp files in folder to current version"),
     ):
         sp = sub.add_parser(cmd, help=help_text, parents=[common])
-        sp.add_argument("target", help="transcript file or folder (migrate/batch)")
+        sp.add_argument("target", help="transcript file (batch: folder)")
         sp.add_argument("glossary", help="glossary .md file")
 
     # batch: folder + glossary
@@ -397,8 +370,6 @@ def main() -> int:
 
     if args.cmd == "batch":
         return batch_check(target, glossary, dry_run=dry_run)
-    if args.cmd == "migrate":
-        return migrate_stamps(target, glossary)
     if args.cmd == "quick-scan":
         return quick_scan(target, glossary, threshold=threshold)
     if args.cmd == "check":
