@@ -69,7 +69,7 @@ Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error co
 - 불참: 이름(Org A)
 
 ## 이전 회의(M/D) 연계 맥락
-> 직전 1-2주 회의에서 이어진 안건 요약.
+> 직전 N건(context_lookback) 회의에서 이어진 안건 요약 + 미해소 이슈 carry.
 
 ## 핵심 논의
 
