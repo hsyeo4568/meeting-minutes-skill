@@ -20,10 +20,12 @@ paths:
 
 # Category x deliverable matrix. THIS IS CONFIG — every org meets differently.
 # Keys are category ids; values are deliverable flags. gmail: true|false|optional.
+# context_lookback = 직전 회의 얕은-스캔 개수 상한(prior-meeting shallow-scan cap; 전문 재독 아님).
+# 시간창("1~2주") 대신 개수 cap — 데일리는 매일 열려 시간창이 폭증. 미해소 이슈는 cap 초과해도 추적.
 categories:
-  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true }
-  regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true }
-  workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true }
+  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true, context_lookback: 3 }
+  regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true, context_lookback: 3 }
+  workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true, context_lookback: 2 }
 
 channels:
   slack_workspace_id: "<TXXXXXXXX>"  # {{slack_workspace_id}}
