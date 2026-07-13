@@ -33,7 +33,7 @@ Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee a
 
 ## 1. Context Linking (context-link)
 
-- Before drafting, read the 1–2 prior weeks of minutes + the previous day/week's meeting. **Read scope and depth can be narrowed by the profile (profile takes precedence)** — e.g. read the immediately preceding entry in full; others in link/Action sections only.
+- Before drafting, read the immediately preceding meeting in full + the previous `config.categories.<cat>.context_lookback` meetings (default 3) in link/Action sections only. **Read scope and depth can be narrowed by the profile (profile takes precedence).** Use a per-category count cap, not a calendar window — daily cadence makes a "1–2 weeks" window blow up to ~10 minutes. **Unresolved-issue override:** an open issue older than the cap is still tracked back to the meeting where it opened (carry invariant > count cap) — never drop a live follow-up just because it fell outside the window.
 - For each agenda item, explicitly state which prior meeting's unresolved issue it follows up on.
 - Add a `## Prior Meeting (date) Context` section at the top, or per-item quotation blocks (`> Prior meeting #N follow-up`).
 - Items that are genuinely new — not follow-ups — must be explicitly labeled "신규" (new) so readers can track continuity.

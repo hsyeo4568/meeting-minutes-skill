@@ -27,7 +27,7 @@ Raw transcripts and sheets live under `{{work_folder}}`. The canonical store is 
 
 ## 3. Context-link + draft body
 
-- Read the previous 1–2 weeks of meeting notes → consolidate the linked context for ongoing agenda items.
+- Read the immediately preceding meeting in full + the previous `config.categories.<cat>.context_lookback` meetings (default 3) in link/Action sections only → consolidate the linked context for ongoing agenda items. Count cap, not a calendar window (daily cadence blows a "1–2 weeks" window up to ~10 minutes). An unresolved issue older than the cap is still tracked back to where it opened (carry invariant > cap).
   - **Do not silently skip when not found** — if a file is missing, the path is wrong, or the index is stale, explicitly output `직전 회의록 미탐지 — 수동 확인 필요` as a flag in the draft's context-link section (do not leave it as an empty section). If this is the first meeting, write "신규(직전 회의 없음)".
 - Link each agenda item back to its source meeting → track "last week X → this week Y".
 - Apply writing-principles.md (bullet style, arrows, segments, assignees, real data).
