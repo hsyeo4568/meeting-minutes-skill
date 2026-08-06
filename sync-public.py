@@ -199,7 +199,8 @@ def main() -> int:
     # Explicit paths only — NOT `git add -A`. Blind staging would sweep any
     # stray file in the repo root (temp diffs, editor backups) into a public
     # commit, bypassing the pre-copy leak scan (which only sees source files).
-    subprocess.run(["git", "add", "skills", "README.md", "sync-public.py", ".gitignore"],
+    tracked = ["skills", "README.md", "INSTALL.md", "CHANGELOG.md", "sync-public.py", ".gitignore"]
+    subprocess.run(["git", "add"] + [n for n in tracked if (REPO / n).exists()],
                    cwd=REPO, check=True)
     st = subprocess.run(["git", "status", "--short"], cwd=REPO, capture_output=True, text=True).stdout
     print("== Staged ==\n" + (st or "  (no changes)"))

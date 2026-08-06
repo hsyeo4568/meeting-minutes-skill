@@ -17,6 +17,20 @@
 
 ---
 
+## 가장 빠른 설치 — Claude에게 시키기
+
+이미 Claude Code를 쓰고 있다면, 대화창에 **이 한 줄**을 붙여넣으면 끝난다.
+
+```
+https://github.com/hsyeo4568/meeting-minutes-skill 의 INSTALL.md를 읽고 내 환경에 맞게 설치해줘
+```
+
+Claude가 [`INSTALL.md`](INSTALL.md) 런북대로 OS·설치 경로·기존 설치 유무를 판정해 복사·의존성 설치·검증까지 하고, 처음 `/meeting-minutes`를 부르면 온보딩 인터뷰가 내 이름·조직·회의 종류·용어를 물어 config와 profile을 만든다. 손으로 설치하려면 아래 경로 B, 설치 없이 쓰려면 경로 C.
+
+변경 내역은 [`CHANGELOG.md`](CHANGELOG.md).
+
+---
+
 ## 시작하기 — 내 상황에 맞는 경로 선택
 
 ### 경로 A: Claude Code가 처음인 경우 (설치부터)
