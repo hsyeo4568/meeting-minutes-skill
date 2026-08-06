@@ -1,39 +1,72 @@
 # 변경 이력
 
-날짜는 이 저장소에 올라간 날 기준. 버전은 배포 단위일 뿐 패키지 버전이 아니다 —
-설치는 그냥 최신 상태를 복사해 가면 된다.
+- 날짜 = 이 저장소 반영일 기준
+- 버전은 배포 단위 표기이며 패키지 버전 아님 → 설치는 최신 상태 복사로 충분
 
 ---
 
 ## [1.1.0] — 2026-08-06
 
-긴 회의를 논점별로 묶어 쓰는 모드, 첨부 자료를 실제로 읽고 나서 쓰게 하는 단계,
-그리고 "공유했다"를 말이 아니라 확인으로 남기는 게시 절차.
+**요약** — ① 긴 회의를 논점별로 묶는 본문 모드, ② 첨부자료 선(先)이해 단계, ③ 공유 결과를 확인으로 남기는 게시 절차
 
 ### 추가
 
-- **본문 구성 방식 `body_mode`** — 회의 종류별로 `config.categories.<종류>.body_mode`에 적는다.
-  - `chronological`(기본) — 안건이 나온 순서대로 쓴다. 데일리처럼 짧고 자주 하는 회의는 "오늘 뭐가 있었나"가 곧 구조라서 이게 맞다. 여기에 억지로 논점을 씌우지 않는다.
-  - `axis` — 녹취 순서는 참고만 하고 본문은 **논점별로 다시 묶는다.** 논점 하나가 `## N.` 하나가 되고, 그 아래 `1) 2) 3)`으로 배경·전제 → 주체별 입장 → 쟁점 → 결론 순으로 붙는다. 논점마다 결정 / 미합의 / 보류 중 하나로 끝맺고, 어디에도 안 붙는 얘기는 맨 뒤 `## N. 기타`에 한 줄씩 모은다. 한 시간 동안 같은 질문이 세 번씩 돌아오는 외부 회의·워크샵에서, 나온 순서대로 적으면 정작 뭘 다퉜는지가 묻혀버리던 걸 겨냥한 모드다.
-  - 규칙은 `references/engine/writing-principles.md` §11에 있다. 값을 잘못 적으면(`axes` 같은) 예전엔 그냥 무시됐는데, 이제 `python scripts/dry_run.py`가 FAIL로 잡아준다.
-- **자료 이해 단계 (phase 1.5)** — `/meeting-minutes <폴더>`로 폴더를 넘기면 녹취만 읽지 않는다. 폴더 안 파일을 전부 목록으로 잡고 확장자별 핸들러로 덱·시트·리포트를 요약해서, **초안을 쓰기 전에** 읽는다. 핸들러는 `config.materials.handlers`에 적어두면 되고, 안 깔린 건 건너뛰어 다음 것이 받고, 마지막엔 기본으로 들어 있는 `scripts/materials_digest.py`가 처리한다. 덱이 폴더에 그대로 있는데 파일명만 보고 안건을 적는 건 빠른 길이 아니라 그냥 잘못 쓴 회의록이다.
-- **게시 절차 강제 (publish gate)** — `scripts/mm_run.py`의 `approve → gate → record → verify → close`. 승인한 시점의 MD를 스냅샷으로 고정하고, 공유용 본문은 `gate`가 알려준 `snapshot_path`에서만 만든다. 막히면 종료 코드로 이유를 알려준다. `3`은 승인 뒤에 MD가 바뀐 것(다시 승인해야 한다), `4`는 올린 내용과 다시 읽어온 내용이 다른 것, `5`는 다른 세션이 먼저 잡고 있는 것, `7`은 확인 안 된 산출물을 남긴 채 닫으려 한 것. 전문은 `references/engine/RUNTIME-PROTOCOL.md`. Python이나 PyYAML이 없으면 이 절차 없이 글로만 진행할 뿐, 실패로 끝나지는 않는다.
+**1. 본문 구성 방식 `body_mode`**
+
+- 회의 종류별로 `config.categories.<종류>.body_mode`에 지정
+- `chronological` (기본) — 안건 발생 순 나열
+  - 데일리처럼 짧고 잦은 운영 회의에 적합 ("오늘 뭐가 있었나"가 곧 구조)
+  - 이런 회의에 논점축 강제 불필요
+- `axis` — 녹취 순서는 입력으로만 사용, 본문은 논점별 재편
+  - 논점 1개 = `## N.` 1개, 하위는 `1) 2) 3)`으로 배경·전제 → 주체별 입장 → 쟁점 → 결론
+  - 논점마다 결정 / 미합의 / 보류 중 하나로 착지, 어디에도 안 붙는 내용은 맨 뒤 `## N. 기타`에 1줄씩
+  - 대상: 외부 회의·워크샵 등 같은 쟁점이 반복 등장하는 회의 → 발생 순 나열 시 쟁점이 묻히는 문제 해소
+- 규칙 전문: `references/engine/writing-principles.md` §11
+- 오타값(`axes` 등)은 `python scripts/dry_run.py`가 FAIL 처리 (이전에는 무시됨)
+
+**2. 자료 이해 단계 (phase 1.5)**
+
+- `/meeting-minutes <폴더>`로 폴더 전달 시 녹취 외 폴더 내 파일 전체를 목록화
+- 확장자별 핸들러로 덱·시트·리포트 요약 → **초안 작성 전** 반영
+- 핸들러는 `config.materials.handlers`에 선언, 미설치 항목은 건너뛰고 다음 핸들러가 수신, 최종적으로 기본 핸들러 `scripts/materials_digest.py`가 처리
+- 덱이 폴더에 있는데 파일명만 보고 안건 작성하는 것은 실패한 run으로 간주
+
+**3. 게시 절차 강제 (publish gate)**
+
+- `scripts/mm_run.py` — `approve → gate → record → verify → close`
+- 승인 시점 MD를 스냅샷으로 고정 → 공유 본문은 `gate`가 반환한 `snapshot_path`에서만 생성
+- 종료 코드별 차단 사유
+  - `3` = 승인 후 MD 변경 (재승인 필요)
+  - `4` = 게시본과 재확인본 불일치
+  - `5` = 다른 세션이 lease 보유
+  - `7` = 미검증 산출물을 남긴 채 종료 시도
+- 전문: `references/engine/RUNTIME-PROTOCOL.md`
+- Python·PyYAML 미설치 환경은 이 절차 생략하고 진행 (실패 아님)
 
 ### 변경
 
-- **올린 내용을 다시 읽어 대조하는 방식을 채널별로 나눴다.** 전체를 바이트로 비교하던 예전 방식은, Slack Canvas가 `-` 불릿을 `*`로 바꾸고 날짜를 임베드로 감싸는 순간 매번 틀렸다고 나왔다. 이제 Canvas는 장식을 걷어낸 뒤 줄 단위로 빠진 게 있는지만 보고, Gmail 평문은 78열에서 줄이 접히는 걸 손실로 세지 않는다. 그렇다고 느슨해진 건 아니라서 진짜 빠진 줄은 그대로 잡힌다.
-- 엔진 문서(`references/engine/*`)를 영어로 정리했다. 회의록 산출물 언어와는 상관없고, 모델이 읽는 계약 문서만 해당된다.
+- **게시 후 재확인(read-back) 방식을 채널별로 분리**
+  - 기존 전체 바이트 비교는 Slack Canvas가 `-` 불릿을 `*`로 치환하고 날짜를 임베드로 감싸는 순간 매번 불일치 처리됨
+  - Canvas → 장식 제거 후 줄 단위 누락만 확인 / Gmail 평문 → 78열 하드랩은 손실로 미집계
+  - 실제 누락 줄은 종전대로 검출
+- 엔진 문서(`references/engine/*`) 영어로 정리 — 산출물 언어와 무관, 모델이 읽는 계약 문서만 해당
 
 ### 고침
 
-- 본문을 대조용으로 펼칠 때 `1)`을 목록 번호로 인식한다. `axis` 모드의 하위 항목이 본문 텍스트로 잘못 읽히던 문제.
-- 승인한 뒤에 작업 MD 이름을 바꾸면 그 run이 조용히 붕 뜨던 걸 겉으로 드러냈다.
-- 회의 종류를 가르는 기준과 마커 처리 설명을 보강했고, phase 6.5(주제 동기화)는 그 줄이 실제로 어디에 들어갔는지 다시 읽어 확인하도록 했다.
+- 본문 대조 시 `1)`을 목록 번호로 인식 → `axis` 모드 하위 항목이 본문 텍스트로 오인되던 문제 해소
+- 승인 후 작업 MD 파일명 변경 시 해당 run이 조용히 고아가 되던 현상 표면화
+- 회의 종류 판별 기준·마커 처리 설명 보강
+- phase 6.5(주제 동기화)는 해당 줄의 실제 반영 위치를 재확인하도록 요구
 
-### 설치
+### 설치 · 업데이트
 
-- **`INSTALL.md` 추가.** 저장소 주소만 주면 Claude가 알아서 따라가는 설치 안내서다. 손으로 설치할 거면 기존 `skills/meeting-minutes/SETUP.md`가 그대로 정본.
-- **`scripts/update_install.py` 추가 — 1.0.0 쓰던 사람용.** 다시 설치하는 게 아니라 엔진만 갈아끼운다. `config.yaml`과 자기 profile, `verify-denylist.local`, `.mm/`은 아예 손대지 않고, `--apply` 전에 통째로 백업을 뜬다. 그냥 돌리면 뭐가 바뀌는지만 보여주고 아무것도 안 쓴다.
+- **`INSTALL.md` 추가** — 저장소 주소만 전달하면 Claude가 그대로 따라가는 설치 런북
+  - 사람이 직접 설치할 경우 `skills/meeting-minutes/SETUP.md`가 정본
+- **`scripts/update_install.py` 추가** — 1.0.0 기설치자용, 재설치 아닌 엔진 교체
+  - `config.yaml` · 사용자 profile · `verify-denylist.local` · `.mm/` 미접근 (읽기·삭제 모두 없음)
+  - `--apply` 전 스킬 폴더 통째 백업
+  - `--apply` 없이 실행 시 변경 계획만 출력, 파일 미기록
+  - 완료 후 신규 설정 키 안내 (`body_mode`, `materials`, `runtime.*` — 미설정이어도 동작)
 
   ```bash
   python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
@@ -43,8 +76,8 @@
 
 ## [1.0.0] — 2026-07-27
 
-처음 공개한 상태 (사내 세미나 공유용).
+최초 공개 (사내 세미나 공유용)
 
-- `skills/meeting-minutes` — 회의 종류별 산출물(팀챗 MD / Canvas / 메일), 이전 회의 연계, 조직별 Action Items. config + profile로 굴러간다.
-- `skills/stt-transcript-fix` — STT 녹취 오타·문맥 교정, `(*...)` 코멘트 자동 마킹.
-- 설치 없이 쓰는 `PROMPT-ONLY.md`, 그리고 `profiles/_template`과 `profiles/example-acme`.
+- `skills/meeting-minutes` — 회의 종류별 산출물(팀챗 MD / Canvas / 메일), 이전 회의 연계, 조직별 Action Items, config + profile 구동
+- `skills/stt-transcript-fix` — STT 녹취 오타·문맥 교정, `(*...)` 코멘트 자동 마킹
+- 설치 없이 사용하는 `PROMPT-ONLY.md`, `profiles/_template` · `profiles/example-acme` 동봉
