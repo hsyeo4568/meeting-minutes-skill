@@ -221,6 +221,49 @@ def test_check_degradation_empty_categories(capsys):
     assert "skipped" in capsys.readouterr().out
 
 
+# ---------------------------------------------------------------------------
+# check_degradation() shares the runtime plan source (design §10.3)
+# A second copy of the matrix walk drifts from what `mm_run approve` freezes,
+# so the dry-run would bless a plan the runner never executes.
+# ---------------------------------------------------------------------------
+
+def test_degradation_plan_excludes_tuning_knobs(capsys):
+    """`context_lookback` is a tuning knob, not a deliverable."""
+    cfg = {"categories": {"daily": {"detail_md": True, "vault": True,
+                                    "canvas": True, "context_lookback": 3}}}
+    DR.check_degradation(cfg)
+    assert "context_lookback" not in capsys.readouterr().out
+
+
+def test_degradation_plan_matches_plan_artifacts(capsys):
+    """Every printed entry equals plan_artifacts() for that category."""
+    import mm_state as S
+
+    cfg = {"categories": {
+        "daily": {"detail_md": True, "share_md": False, "canvas": True,
+                  "gmail": True, "vault": True, "context_lookback": 3},
+        "workshop": {"detail_md": True, "share_md": False, "canvas": True,
+                     "gmail": "optional", "vault": True},
+    }}
+    DR.check_degradation(cfg)
+    out = capsys.readouterr().out
+    for line, category in zip(
+            [ln for ln in out.splitlines() if ln.strip().startswith("outputs:")],
+            ["daily", "workshop"]):
+        printed = [chunk.split(" ->")[0].strip()
+                   for chunk in line.split("outputs:", 1)[1].split(",")]
+        assert printed == S.plan_artifacts(cfg, category)
+
+
+def test_degradation_annotates_every_entry_as_file_fallback(capsys):
+    """Tools off never drops an artifact — each one degrades to a file."""
+    cfg = {"categories": {"daily": {"canvas": True, "gmail": True, "vault": True}}}
+    DR.check_degradation(cfg)
+    entries = [ln for ln in capsys.readouterr().out.splitlines()
+               if ln.strip().startswith("outputs:")][0]
+    assert entries.count("->") == 3
+
+
 def test_build_tokmap_missing_section_reports_not_crashes():
     """H11 (operational-adversarial 2026-07-12): user deletes the channels
     block (no-slack org) — validator must report UNRESOLVED tokens, not
@@ -236,3 +279,64 @@ def test_build_tokmap_missing_section_reports_not_crashes():
     assert tokmap["slack_channel_id"] is None
     assert tokmap["language"] is None
     assert tokmap["me"] == "Alex"
+
+
+# ---------------------------------------------------------------------------
+# check_materials() — phase 1.5 handler chains
+# ---------------------------------------------------------------------------
+
+def test_check_materials_absent_block_skipped(capsys):
+    """No materials key = phase 1.5 off, not a failure."""
+    assert DR.check_materials({}, Path("/skills/meeting-minutes")) == 0
+    assert "skipped" in capsys.readouterr().out
+
+
+def test_check_materials_empty_chain_fails():
+    """An ext declared with no handler is a config error — the chain that
+    resolves to nothing would silently drop that material at runtime."""
+    cfg = {"materials": {"handlers": {"pptx": []}}}
+    assert DR.check_materials(cfg, Path("/skills/meeting-minutes")) == 1
+
+
+def test_check_materials_non_list_chain_fails():
+    cfg = {"materials": {"handlers": {"pptx": "python-pptx"}}}
+    assert DR.check_materials(cfg, Path("/skills/meeting-minutes")) == 1
+
+
+def test_check_materials_reports_first_available_handler(tmp_path, capsys):
+    """Sibling skill dirs decide availability: the runtime picks the first
+    installed entry, so the dry-run must name that same one."""
+    (tmp_path / "deck-distiller").mkdir()
+    (tmp_path / "deck-distiller" / "SKILL.md").write_text("x", encoding="utf-8")
+    cfg = {"materials": {"handlers": {"pptx": ["not-installed", "deck-distiller"]}}}
+    assert DR.check_materials(cfg, tmp_path / "meeting-minutes") == 0
+    out = capsys.readouterr().out
+    assert "pptx" in out and "deck-distiller" in out
+
+
+def test_check_materials_exhausted_chain_reports_floor(tmp_path, capsys):
+    """Nothing installed is still valid — phase 1.5 falls to built-in extraction."""
+    cfg = {"materials": {"handlers": {"docx": ["nope-a", "nope-b"]}}}
+    assert DR.check_materials(cfg, tmp_path / "meeting-minutes") == 0
+    assert "floor" in capsys.readouterr().out
+
+
+def test_check_materials_invalid_deep_read_fails():
+    cfg = {"materials": {"deep_read": "sometimes", "handlers": {"pdf": ["fitz"]}}}
+    assert DR.check_materials(cfg, Path("/skills/meeting-minutes")) == 1
+
+
+def test_check_categories_rejects_unknown_body_mode():
+    """A typo'd body_mode is silent at runtime — the model just reads a word it
+    does not recognize and falls back to whatever it feels like. Gate it here."""
+    cfg = {"categories": {"daily": {"vault": True, "body_mode": "axes"}}}
+    assert DR.check_categories(cfg) == 1
+
+
+def test_check_categories_accepts_known_modes_and_absence():
+    cfg = {"categories": {
+        "daily": {"vault": True, "body_mode": "chronological"},
+        "workshop": {"vault": True, "body_mode": "axis"},
+        "legacy": {"vault": True},          # absent = chronological default
+    }}
+    assert DR.check_categories(cfg) == 0

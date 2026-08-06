@@ -82,6 +82,25 @@ Filename: `YYMMDD_<category>.md`. Richer than share_md — preserve all error co
 (same structure as share_md, but internal mentions included)
 ```
 
+### body_mode: `axis` (writing-principles §11)
+
+When the category row declares `body_mode: axis`, the numbered sections above are **discussion axes**, not transcript-ordered agenda items. Same for the `vault` and `canvas` bodies — only the numbering semantics change, section order does not.
+
+```
+## 1. <논의 축 — 회의가 실제로 다툰 질문>
+1) 배경·전제 — 이 축이 왜 열렸나 (한 줄)
+2) 입장 — (Org A) 주장 / (Org B) 반론
+3) 쟁점 — 무엇이 갈렸나
+   - 근거 수치·식별자 `E-XXX` / `HH:MM`
+4) 결론 — 결정 | 미합의(양측 입장 병기) | 보류(재론 시점)
+
+## 2. <다음 축>
+1) …
+
+## N. 기타
+- 축에 안 붙는 단발 언급 (한 줄씩, ~3건 초과 시 축 재추출)
+```
+
 ---
 
 ## canvas — periodic / workshop review surface

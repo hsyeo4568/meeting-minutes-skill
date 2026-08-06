@@ -4,7 +4,7 @@
 > Style rules branch on a locale condition (`{{business_style}}`) — culture-specific writing conventions are not imposed as universal rules.
 > **This file covers only universal writing hygiene, independent of meeting type.** Meeting *form* (section order, categories, Action grouping, titles) belongs to profile `structure.md` (see §Section Order below). §3/§5/§6/§9 lean on *operational-meeting examples* — if they don't fit the meeting type, follow structure.md.
 
-Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee attribution · §5 cross-org data · §6 symptom titles · §7 AI-smell removal · §8 identifier cross-check · §9 no report duplication · §10 abbreviations · §Section-Order→structure.md · §medium labeling
+Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee attribution · §5 cross-org data · §6 symptom titles · §7 AI-smell removal · §8 identifier cross-check · §9 no report duplication · §10 abbreviations · §11 body mode (chronological/axis) · §Section-Order→structure.md · §medium labeling
 
 ## 1. Context Linking (context-link)
 
@@ -72,6 +72,23 @@ Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee a
 
 - Compress repeated long names to abbreviations after first use.
 - Exception: Action Items section headers use full official names (expand org abbreviations) to prevent ambiguity when shared externally.
+
+## 11. Body Organization Mode — `body_mode`: `chronological` | `axis`
+
+Each category row in config declares `body_mode` (absent ⇒ `chronological`). It governs **how transcript content maps onto the numbered body sections** — nothing else. Section order, Action grouping, and titles still come from profile `structure.md`; §2 style and §7 AI-smell rules apply to both modes.
+
+- **`chronological`** — one numbered section per issue/agenda, in the order it came up. Correct for short, high-cadence operational meetings where "what happened today" *is* the structure. Do not force axes onto them.
+- **`axis`** — reorganize by line of discussion. Transcript order is **input, not output**. For deep-dive, multi-party, or external-org meetings where the same question is revisited three times across an hour and a flat list buries the argument.
+
+### Writing an `axis`-mode body
+
+1. **Extract the axes after reading the whole transcript.** An axis = the question or tension the meeting actually argued (`분모를 무엇으로 볼 것인가`), not a topic label (`실효용량`). Aim for 3–6; more than ~7 means the axes are really sub-items.
+2. **One top-level number per axis** (`## 1.` `## 2.` …), ordered by weight — decision-bearing axes first, unresolved/carried next, informational last. Never ordered by clock time.
+3. **Sub-items use `1)` `2)` `3)`** inside the axis and carry the depth in argument order: 배경·전제 → 주체별 입장 → 쟁점 → 결론. A third level (`-`) exists only for evidence: figures, identifiers, timestamps, error codes.
+4. **Relocate, don't append.** An utterance from the opening minutes belongs under whichever axis it argues, even if that axis was otherwise discussed at the end. Merge the scattered fragments of one axis into one place; split a single stretch of talk across axes when it covers two.
+5. **Every axis states its landing point** — 결정 / 미합의(양측 입장 그대로 보존) / 보류(재론 시점·조건). An axis that ended nowhere says so explicitly; it is never dropped for lacking a conclusion.
+6. **Residue rule.** Anything fitting no axis goes into exactly one trailing `## N. 기타` at one line each. **No section may reproduce transcript order as a fallback.** If 기타 grows past ~3 items, the axis extraction was too coarse — re-extract.
+7. **Reorganization must not change certainty.** §2's stance/hedging preservation binds here: regrouping a proposal next to a decision does not make it one, and attribution (`(주체)` labels) survives the move.
 
 ## Section Order · Action Grouping → profile structure.md
 

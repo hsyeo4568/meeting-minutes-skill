@@ -34,7 +34,8 @@ Profile-supplied (engine references them but does NOT hardcode values; profile f
 
 ## Canonical pipeline phases (tooling.md + pipeline.md MUST use these exact names)
 
-1. Preprocess — text/PDF/audio(Whisper); read attached slides first (python-pptx).
+1. Preprocess — build the input manifest (folder input manifests every file, not just the transcript); text/PDF/audio(Whisper).
+1.5. Materials comprehension — optional; only if `config.materials` is set: digest each attached material (deck/sheet/report) through the configured per-ext handler chain, deterministic extraction first, rendered-image read only per `materials.deep_read`. Absent key → floor behavior = read attached slides with a structured library (python-pptx) as part of phase 1.
 2. Speaker ID + clean — map speakers, strip fillers. `{{me}}` is the "I".
 3. Context-link + draft body — read prior 1-2 weeks of minutes, link each agenda to its source meeting, cross-check identifiers vs source-of-truth sheet.
 4. Per-category deliverables — apply `categories` matrix (output-templates.md).
@@ -54,4 +55,5 @@ errors out. profile=null -> skip domain/contact cross-checks, proceed with place
 | gmail_mcp | don't draft; write subject+to/cc+body to `.md` (or `.eml`) for manual send |
 | qmd | skip embed; print "indexing skipped" |
 | ontology | skip phase 7 |
+| materials handler | fall to the next entry in the chain; all absent → built-in structured extraction (phase 1.5 floor), never skip the material silently |
 | profile=null | skip cross-checks; use placeholders / ask user |

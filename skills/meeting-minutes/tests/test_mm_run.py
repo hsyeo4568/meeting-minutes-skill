@@ -46,13 +46,23 @@ def doc(tmp_path):
 
 
 @pytest.fixture
+def plain_doc(tmp_path):
+    """A work MD with no frontmatter — the shape real daily minutes have, since
+    the file is pasted into a team chat as-is (live run 2026-07-27)."""
+    p = tmp_path / "work" / "260727_데일리이슈.md"
+    p.parent.mkdir(parents=True)
+    p.write_text("# Daily 이슈 회의록\n\n- 이슈 1\n", encoding="utf-8")
+    return p
+
+
+@pytest.fixture
 def cfg(tmp_path):
     p = tmp_path / "config.yaml"
     p.write_text(
         "categories:\n"
         "  daily: {detail_md: true, share_md: false, canvas: true, gmail: true, vault: true}\n"
         "channels:\n"
-        "  canvas: {editable: false}\n"
+        "  canvas: {editable: false, readback: semantic}\n"
         "  gmail: {editable: true}\n"
         "  vault: {editable: true}\n"
         "runtime: {state_dir: .mm, lease_ttl_min: 30, retention_days: 90}\n",
@@ -125,14 +135,37 @@ def test_gate_pass_returns_snapshot_path_and_create_action(capsys, doc, cfg):
     assert len(out["idem_key"]) == 16
 
 
+def test_approve_refuses_a_doc_inside_the_canonical_store(capsys, tmp_path):
+    """I2 is a guard, not a promise: run state must never land in the vault.
+
+    `.mm/` holds source.md and rendered/*.md — inside a vault whose search index
+    globs `**/*.md`, every snapshot would be indexed as another meeting note.
+    """
+    vault = tmp_path / "vault"
+    (vault / "spp" / "meetings").mkdir(parents=True)
+    note = vault / "spp" / "meetings" / "2026-07-27 daily.md"
+    note.write_text(DOC, encoding="utf-8")
+    conf = tmp_path / "config.yaml"
+    conf.write_text(
+        f'paths: {{vault: "{vault.as_posix()}"}}\n'
+        "categories:\n"
+        "  daily: {canvas: true, vault: true}\n",
+        encoding="utf-8",
+    )
+    code, out = run(capsys, "approve", "--doc", note, "--config", conf,
+                    "--category", "daily")
+    assert code == 2
+    assert not (note.parent / ".mm").exists()
+    assert "vault" in json.dumps(out, ensure_ascii=False).lower()
+
+
 def test_gate_after_edit_exits_3_and_creates_no_artifact(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
     doc.write_text(DOC.replace("이슈 1", "이슈 1 수정"), encoding="utf-8")
     code, out = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
     assert code == 3
     assert out["diff"]
-    assert not (state_dir(doc) / "runs").glob("*/rendered/*")or True
-    assert list((state_dir(doc)).rglob("rendered/*")) == []
+    assert list(state_dir(doc).rglob("rendered/*")) == []
 
 
 def test_gate_after_edit_supersedes_run_and_stales_artifacts(capsys, doc, cfg):
@@ -164,7 +197,9 @@ def test_gate_rejects_artifact_outside_the_frozen_plan(capsys, doc, cfg):
 
 def _record(capsys, doc, cfg, lease, artifact="canvas", body=None, ext_id="F09"):
     rendered = doc.parent / f"rendered_{artifact}.md"
-    rendered.write_text(body if body is not None else DOC + "\n> mm:abc\n", encoding="utf-8")
+    # write_bytes, not write_text: on Windows text mode rewrites "\n" as "\r\n",
+    # so a CRLF fixture would land as "\r\r\n" and fake a content change.
+    rendered.write_bytes((body if body is not None else DOC + "\n> mm:abc\n").encode("utf-8"))
     return run(capsys, "record", "--doc", doc, "--lease", lease, "--artifact", artifact,
                "--id", ext_id, "--body-file", rendered)
 
@@ -208,6 +243,7 @@ def test_gate_returns_readback_action_once_an_id_exists(capsys, doc, cfg):
     assert code == 0
     assert out["action"] == "readback"
     assert out["external_id"] == "F09"
+    assert out["gate_token"] is None, "readback must not authorize a replacement record"
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +252,9 @@ def test_gate_returns_readback_action_once_an_id_exists(capsys, doc, cfg):
 
 def _verify(capsys, doc, lease, artifact="canvas", body=None):
     back = doc.parent / f"readback_{artifact}.md"
-    back.write_text(body if body is not None else DOC + "\n> mm:abc\n", encoding="utf-8")
+    # write_bytes, not write_text: Windows text mode rewrites "\n" as "\r\n", so a
+    # CRLF fixture would land on disk as "\r\r\n" and fake a content change.
+    back.write_bytes((body if body is not None else DOC + "\n> mm:abc\n").encode("utf-8"))
     return run(capsys, "verify", "--doc", doc, "--lease", lease,
                "--artifact", artifact, "--readback-file", back)
 
@@ -239,6 +277,41 @@ def test_verify_mismatch_exits_4_and_leaves_artifact_created(capsys, doc, cfg):
     assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "created"
     events = S.read_events(state_dir(doc) / "runs.jsonl")
     assert any(e["event"] == "readback_mismatch" for e in events)
+
+
+def test_semantic_channel_accepts_the_renderers_own_rewrite(capsys, doc, cfg):
+    """Slack canvas rewrites `-` bullets to `*` and wraps dates in an embed
+    (measured on a live canvas). Byte comparison there would fail every run."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease,
+            body="# 회의\n- [ ] 확인 필요 항목\n- 2026-07-28 Beta 회의\n")
+    code, _ = _verify(capsys, doc, lease,
+                      body="# 회의\n\n* [ ] 확인 필요 항목\n\n"
+                           "* ![](slack_date:2026-07-28) Beta 회의\n")
+    assert code == 0
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["status"] == "readback_verified" and art["readback_mode"] == "semantic"
+
+
+def test_semantic_channel_still_catches_truncation(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease,
+            body="# 회의\n- 첫 항목\n- 잘려나갈 항목\n")
+    code, out = _verify(capsys, doc, lease, body="# 회의\n\n* 첫 항목\n")
+    assert code == 4
+    assert out["missing_lines"] == ["잘려나갈 항목"]
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "created"
+
+
+def test_exact_channel_is_unchanged_by_the_semantic_option(capsys, doc, cfg):
+    """vault declares no readback mode -> byte comparison stays in force."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "vault")
+    _record(capsys, doc, cfg, lease, artifact="vault", body="- 항목\n", ext_id="v1")
+    code, _ = _verify(capsys, doc, lease, artifact="vault", body="* 항목\n")
+    assert code == 4, "exact channels must not absorb a bullet rewrite"
 
 
 def test_verify_ignores_crlf_only_difference(capsys, doc, cfg):
@@ -347,6 +420,29 @@ def test_wrong_lease_on_record_exits_5(capsys, doc, cfg):
 def test_status_on_unmanaged_doc_is_not_an_error(capsys, doc, cfg):
     code, out = run(capsys, "status", "--doc", doc)
     assert code == 0 and out["state"] == "unmanaged"
+    assert out["orphan_runs"] == []
+
+
+def test_approve_leaves_a_frontmatterless_doc_byte_identical(capsys, plain_doc, cfg):
+    """No frontmatter -> no mirror. The MD is pasted into a team chat as-is, so
+    it must never gain internal state (mm_doc_id/mm_run)."""
+    before = plain_doc.read_bytes()
+    approve(capsys, plain_doc, cfg)
+    assert plain_doc.read_bytes() == before
+
+
+def test_status_surfaces_an_orphan_run_after_a_rename(capsys, plain_doc, cfg):
+    """Without a mirror, doc_id lookup falls back to the path — a rename would
+    otherwise report plain 'unmanaged' and hide the run sitting in .mm/."""
+    approve(capsys, plain_doc, cfg)
+    renamed = plain_doc.parent / "260727_데일리이슈_최종.md"
+    plain_doc.rename(renamed)
+
+    code, out = run(capsys, "status", "--doc", renamed)
+    assert code == 0 and out["state"] == "unmanaged"
+    assert len(out["orphan_runs"]) == 1
+    assert out["orphan_runs"][0]["doc_path"].endswith(plain_doc.name)
+    assert out["orphan_runs"][0]["current_run"].startswith("r-")
 
 
 def test_fail_logs_without_a_lease(capsys, doc, cfg):
@@ -356,6 +452,39 @@ def test_fail_logs_without_a_lease(capsys, doc, cfg):
                   "--detail", "429")
     assert code == 0
     assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "failed"
+
+
+def test_audit_failure_revokes_verified_artifact_and_recovery_is_readback_only(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    _verify(capsys, doc, lease)
+
+    code, _ = run(capsys, "fail", "--doc", doc, "--artifact", "canvas",
+                  "--class", "contract", "--key", "canvas.audit_invalidated",
+                  "--impact", "manual_recovery", "--detail", "read-back was self-derived")
+    assert code == 0
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "failed"
+
+    code, out = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    assert code == 0
+    assert out["action"] == "readback" and out["gate_token"] is None
+
+    code, _ = _verify(capsys, doc, lease)
+    assert code == 0
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["status"] == "readback_verified" and art["attempts"] == 1
+
+
+def test_record_rejects_an_existing_external_id_even_if_called_after_readback_gate(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+
+    code, _ = _record(capsys, doc, cfg, lease, ext_id="F10")
+    assert code == 6
+    assert manifest_of(doc)["artifacts"]["canvas"]["external_id"] == "F09"
 
 
 def test_promote_check_defaults_to_no_vault_write(capsys, doc, cfg):

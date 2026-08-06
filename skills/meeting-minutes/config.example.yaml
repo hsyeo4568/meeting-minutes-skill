@@ -22,10 +22,26 @@ paths:
 # Keys are category ids; values are deliverable flags. gmail: true|false|optional.
 # context_lookback = 직전 회의 얕은-스캔 개수 상한(prior-meeting shallow-scan cap; 전문 재독 아님).
 # 시간창("1~2주") 대신 개수 cap — 데일리는 매일 열려 시간창이 폭증. 미해소 이슈는 cap 초과해도 추적.
+# body_mode = 본문 구성 방식 (engine writing-principles §11). chronological(default)=발생 순 안건 나열 /
+# axis=논의 축으로 재분류·재배치. 짧은 운영회의는 chronological, 심화·다자 논의는 axis.
 categories:
-  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true, context_lookback: 3 }
-  regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true, context_lookback: 3 }
-  workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true, context_lookback: 2 }
+  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true, context_lookback: 3, body_mode: chronological }
+  regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true, context_lookback: 3, body_mode: chronological }
+  workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true, context_lookback: 2, body_mode: axis }
+
+# Meeting materials comprehension (pipeline phase 1.5). Omit the whole block to skip the phase
+# (the engine then falls back to plain structured extraction of attached slides).
+# Handler chains are LITERAL tool/skill names for YOUR client — try in order, first available wins,
+# a missing one is not an error. Engine text only names capabilities; this file names the tools.
+materials:
+  scan_folder: true      # folder input manifests every file, not just the transcript
+  max_files: 12          # over the cap: show the list, ask which materials matter
+  deep_read: ask         # auto | ask | off — rendered-page vision read for layout-borne meaning
+  handlers:
+    pptx: [<deck-distiller-skill>, python-pptx]
+    pdf:  [<pdf-skill>, fitz]
+    xlsx: [pandas]
+    docx: [markitdown]
 
 channels:
   slack_workspace_id: "<TXXXXXXXX>"  # {{slack_workspace_id}}
@@ -33,6 +49,30 @@ channels:
   slack_user_id: "<UXXXXXXXX>"       # {{slack_user_id}} — your DM target for review canvases
   slack_url_base: "https://<workspace>.slack.com"  # {{slack_url_base}}
   slack_bot_dm_id: ""                # {{slack_bot_dm_id}} — optional, bot DM channel
+  # Per-artifact publish traits (nested values; the flat keys above are Slack connection ids).
+  # editable: false = the channel cannot be updated in place, so re-publishing leaves an orphan.
+  # After a source edit, mm_run mints a BLOCKING manual item for every non-editable artifact
+  # already published. Omit an entry to accept the built-in default shown here.
+  # readback: how `mm_run verify` compares what came back against what was sent.
+  #   exact    = byte-faithful (after newline/BOM canon) — channels that store what they are given
+  #   semantic = every sent line must be PRESENT after stripping the renderer's own formatting
+  # Use semantic wherever the channel rewrites markup. Measured: a Slack canvas turns `-` bullets
+  # into `*` and wraps dates as `![](slack_date:…)`; a Gmail plaintext body comes back hard-wrapped
+  # near 78 columns, splitting one sent line into two. Exact comparison fails there on every run.
+  # Semantic still catches truncation, dropped sections, an empty body and the wrong document.
+  # The mode is frozen into the manifest at approve time (a later edit cannot downgrade a run).
+  canvas:   { editable: false, readback: semantic }
+  gmail:    { editable: true,  readback: semantic }
+  vault:    { editable: true,  readback: exact }
+  share_md: { editable: true,  readback: exact }
+
+# Publish-protocol runtime (scripts/mm_run.py). Run state lives beside the work MD — never
+# in the vault, so an in-flight run cannot pollute the canonical store or its search index.
+runtime:
+  state_dir: ".mm"       # state dir created next to the work MD; add it to .gitignore + search-index ignores
+  lease_ttl_min: 30      # publish-lock lifetime. Expired lease = reclaimable; live foreign lease = exit 5
+  retention_days: 90     # `mm_run gc` prunes snapshot/rendered/readback of terminal runs older than this
+                         # (manifest.json + runs.jsonl are always kept)
 
 # Tool availability. auto = detect at runtime; on/off = force. Missing tool -> file fallback (never fail).
 tools:

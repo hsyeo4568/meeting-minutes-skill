@@ -164,6 +164,11 @@ def test_artifact_failed_is_retryable_but_stale_is_terminal():
         S.assert_artifact_transition("stale", "created")
 
 
+def test_audit_can_revoke_a_verified_artifact_then_fresh_readback_can_restore_it():
+    S.assert_artifact_transition("readback_verified", "failed")
+    S.assert_artifact_transition("failed", "readback_verified")
+
+
 # ---------------------------------------------------------------------------
 # lock lease + CAS (§5.2)
 # ---------------------------------------------------------------------------
@@ -344,3 +349,25 @@ def test_recurrence_within_one_run_is_not_promotion():
 def test_promotion_on_contract_class_and_on_waiver():
     assert S.promotion_verdict([_ev(failure_class="contract")])["promote"] is True
     assert S.promotion_verdict([_ev(event="manual_waived")])["promote"] is True
+
+
+# --- unclassified events must not be silently dropped (live run 2026-07-27) ---
+# Five real incidents, hand-logged without impact/root_cause_key, produced
+# promote=false with no signal that anything had been skipped.
+
+def test_unclassified_failure_events_are_surfaced_for_triage():
+    evs = [{"ts": "...", "event": "orphan_canvas", "detail": "구본 canvas 잔존"}]
+    v = S.promotion_verdict(evs)
+    assert v["needs_triage"] == ["orphan_canvas"]
+    assert v["promote"] is False, "triage is not promotion — the vault stays clean"
+
+
+def test_protocol_events_are_not_triage_noise():
+    """approve/gate_pass/close are bookkeeping, not unclassified failures."""
+    evs = [{"event": e, "impact": "none"} for e in
+           ("approve", "gate_pass", "artifact_created", "artifact_verified", "close")]
+    assert S.promotion_verdict(evs)["needs_triage"] == []
+
+
+def test_classified_events_never_land_in_triage():
+    assert S.promotion_verdict([_ev()])["needs_triage"] == []

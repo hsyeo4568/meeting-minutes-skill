@@ -18,6 +18,9 @@ At startup, each key in `config.tools` (slack_mcp / gmail_mcp / qmd / ontology) 
 | qmd | Skip embed (indexing), note "search indexing skipped" (Canonical save) |
 | ontology | Skip knowledge-graph update stage (phase 7, optional add-on) |
 | profile=null | Skip domain term/contact cross-validation → proceed with placeholder or user confirmation (Context-link) |
+| materials handler (configured but not installed) | Fall to the next entry in that ext's chain; if the chain is exhausted, extract with the built-in structured library (Materials comprehension floor). Never drop the material — say which handler ran in the closing summary |
+| no handler for an ext | Read the file directly if it is text-like; otherwise list it as `skipped_unsupported` in the closing summary (surfaced, never silent) |
+| `materials.deep_read: off` / user declines | Deterministic extract only; flag in the digest which units carry layout-borne meaning that was not read (e.g. "slide 7 도식 미판독") |
 
 Note: Gmail/Slack MCP are soft-required — if present, use them; if absent, fall back to file output (mechanism above). Availability varies by environment; never treat their absence as a failure.
 

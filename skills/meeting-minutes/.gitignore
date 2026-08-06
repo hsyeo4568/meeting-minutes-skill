@@ -5,6 +5,10 @@ profiles/*
 !profiles/_template/
 !profiles/example-acme/
 
+# Publish-protocol run state (snapshots, rendered bodies, event log). Normally created
+# next to the work MD, but ignored here too for orgs whose work folder is inside a repo.
+.mm/
+
 # Backups / scratch
 *.bak
 verify-denylist.local

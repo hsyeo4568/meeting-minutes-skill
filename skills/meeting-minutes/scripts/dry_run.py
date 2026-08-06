@@ -19,6 +19,7 @@ except ImportError:
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _shared import dig  # noqa: E402
+import mm_state  # noqa: E402  — same plan source the runner freezes at approve time
 
 # Tokens supplied by the profile rather than config — not checked against TOKMAP.
 _PROFILE_SUPPLIED = {"segments", "orgs"}
@@ -141,8 +142,19 @@ def check_profile(cfg: dict, root: pathlib.Path) -> int:
     return 1 if missing else 0
 
 
+# Degraded destination per artifact. Anything unlisted lands as a plain file.
+_TOOLLESS_FALLBACK = {
+    "canvas": ".md fallback (slack off)",
+    "gmail": ".md fallback (gmail off)",
+}
+
+
 def check_degradation(cfg: dict) -> int:
     """Informational dry-run: all tools OFF -> file-only plan per category.
+
+    The plan comes from ``mm_state.plan_artifacts`` — the same function
+    ``mm_run approve`` freezes into the manifest. A second matrix walk here
+    would let the dry-run bless a plan the runner never executes.
 
     Category names are config-defined — iterating (not hardcoding 'daily')
     keeps the validator aligned with the generic-engine contract (codex
@@ -154,21 +166,95 @@ def check_degradation(cfg: dict) -> int:
     if not categories:
         print("== degradation dry-run: no categories in config — skipped")
         return 0
-    for cat_name, cat in categories.items():
+    for cat_name in categories:
         print(f"== degradation dry-run (tools all OFF, category={cat_name})")
-        plan = []
-        for delivery, enabled in (cat or {}).items():
-            if not enabled or enabled == "optional":
-                continue
-            if delivery == "canvas":
-                plan.append("canvas -> .md fallback (slack off)")
-            elif delivery == "gmail":
-                plan.append("gmail -> .md fallback (gmail off)")
-            else:
-                plan.append(f"{delivery} -> file")
+        plan = [
+            f"{artifact} -> {_TOOLLESS_FALLBACK.get(artifact, 'file')}"
+            for artifact in mm_state.plan_artifacts(cfg, cat_name)
+        ]
         print("  outputs:", ", ".join(plan) if plan else "(none)")
     print("  -> file-only, no errors")
     return 0
+
+
+_BODY_MODES = {"chronological", "axis"}
+
+
+def check_categories(cfg: dict) -> int:
+    """Validate per-category tuning knobs that only the model reads.
+
+    `body_mode` has no code path — a typo degrades silently into "the drafter
+    ignored it", which looks identical to a correct run until someone reads the
+    minutes. Returns the failure count.
+    """
+    fail = 0
+    for name, row in (cfg.get("categories") or {}).items():
+        mode = (row or {}).get("body_mode")
+        if mode is not None and mode not in _BODY_MODES:
+            print(f"  FAIL categories.{name}.body_mode={mode!r} — "
+                  f"expected one of {sorted(_BODY_MODES)}")
+            fail += 1
+    if not fail:
+        print("== categories: body_mode values OK")
+    return fail
+
+
+# Handlers the engine can run without any sibling skill: python libs + the built-in
+# vision read. Anything else is looked up as an installed sibling skill.
+_LIB_HANDLERS = {
+    "python-pptx": "pptx",
+    "pandas": "pandas",
+    "fitz": "fitz",
+    "markitdown": "markitdown",
+}
+_BUILTIN_HANDLERS = {"read-vision"}
+_DEEP_READ_MODES = {"auto", "ask", "off"}
+
+
+def _handler_available(name: str, skill_root: pathlib.Path) -> bool:
+    """True if this handler can actually run here (lib importable / skill installed)."""
+    if name in _BUILTIN_HANDLERS:
+        return True
+    module = _LIB_HANDLERS.get(name)
+    if module:
+        import importlib.util
+        try:
+            return importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            return False
+    return (skill_root.parent / name / "SKILL.md").exists()
+
+
+def check_materials(cfg: dict, skill_root: pathlib.Path) -> int:
+    """Validate the phase 1.5 handler chains and report what would actually run.
+
+    A chain is allowed to resolve to nothing (built-in extraction is the floor),
+    but a *malformed* chain is a real config error: at runtime it silently drops
+    the material instead of degrading, which is the failure phase 1.5 exists to
+    prevent. Returns the failure count.
+    """
+    materials = cfg.get("materials")
+    if not materials:
+        print("== materials (phase 1.5): no `materials` block — skipped")
+        return 0
+    fail = 0
+    mode = materials.get("deep_read", "ask")
+    if mode not in _DEEP_READ_MODES:
+        print(f"  FAIL materials.deep_read={mode!r} — expected one of {sorted(_DEEP_READ_MODES)}")
+        fail += 1
+    print(f"== materials (phase 1.5): deep_read={mode}")
+    handlers = materials.get("handlers") or {}
+    for ext, chain in handlers.items():
+        if not isinstance(chain, list) or not chain:
+            print(f"  FAIL {ext}: handler chain must be a non-empty list (got {chain!r})")
+            fail += 1
+            continue
+        picked = next((h for h in chain if _handler_available(h, skill_root)), None)
+        print(
+            f"  {ext}: {picked}" if picked
+            else f"  {ext}: chain exhausted -> built-in extraction floor"
+        )
+    return fail
 
 
 def main() -> int:
@@ -206,7 +292,13 @@ def main() -> int:
     # 4. Profile completeness
     fail += check_profile(cfg, ROOT)
 
-    # 5. Degradation informational check
+    # 4b. Category knobs the model reads but no code enforces
+    fail += check_categories(cfg)
+
+    # 5. Materials handler chains (phase 1.5)
+    fail += check_materials(cfg, ROOT)
+
+    # 6. Degradation informational check
     fail += check_degradation(cfg)
 
     print("\nDRY-RUN:", "PASS" if not fail else "FAIL")

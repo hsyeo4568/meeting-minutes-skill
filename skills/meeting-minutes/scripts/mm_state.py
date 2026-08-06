@@ -42,13 +42,22 @@ RUN_TRANSITIONS = {
 ARTIFACT_TRANSITIONS = {
     "pending":           {"created", "failed", "manual_required", "stale"},
     "created":           {"readback_verified", "failed", "manual_required", "stale"},
-    "readback_verified": {"readback_verified", "manual_required", "stale"},
-    "failed":            {"failed", "created", "manual_required", "stale"},
+    # A later audit can invalidate what was previously marked verified.  That
+    # must block close, while an actual fresh read-back can restore the state
+    # without re-creating the external artifact.
+    "readback_verified": {"readback_verified", "failed", "manual_required", "stale"},
+    "failed":            {"failed", "created", "readback_verified", "manual_required", "stale"},
     "manual_required":   {"manual_required", "created", "readback_verified", "stale"},
     "stale":             set(),
 }
 
 HIGH_IMPACT = {"external_share_error", "data_loss", "manual_recovery"}
+
+# Bookkeeping the runner emits itself — never candidates for failure triage.
+PROTOCOL_EVENTS = {
+    "approve", "gate_pass", "artifact_created", "artifact_verified",
+    "manual_added", "manual_done", "close", "abort", "gc",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +302,11 @@ def refresh_lease(index: dict, doc_id: str, ttl_min: int, now: datetime) -> dict
 
 def new_manifest(doc_id: str, run_id: str, doc_path: str, category: str,
                  source_sha256: str, plan: list[str], now: datetime,
-                 approval_mode: str) -> dict:
+                 approval_mode: str, readback_modes: dict | None = None) -> dict:
+    """Freeze the run. Per-artifact read-back mode is frozen with the plan, so a
+    later config edit — or a command invoked without --config — cannot silently
+    downgrade a rendering channel to byte comparison."""
+    modes = readback_modes or {}
     return {
         "schema": SCHEMA_MANIFEST,
         "doc_id": doc_id,
@@ -317,6 +330,7 @@ def new_manifest(doc_id: str, run_id: str, doc_path: str, category: str,
                 "url": None,
                 "rendered_sha256": None,
                 "readback_sha256": None,
+                "readback_mode": modes.get(key, "exact"),
                 "attempts": 0,
                 "waived": False,
                 "updated_at": iso(now),
@@ -429,5 +443,19 @@ def promotion_verdict(events: list[dict]) -> dict:
         if ev.get("event") == "manual_waived":
             reasons.append(f"waived manual step={ev.get('detail')}")
 
+    # A failure logged without impact/root_cause_key matches no rule above, so it
+    # would score promote=false with nothing saying it was skipped. Surface it as
+    # triage instead of promoting it: unclassified noise in the canonical store is
+    # the failure mode this whole policy exists to prevent.
+    triage = [
+        ev.get("event") for ev in events
+        if ev.get("event") not in PROTOCOL_EVENTS
+        and not ev.get("root_cause_key") and not ev.get("impact")
+    ]
+
     deduped = list(dict.fromkeys(reasons))
-    return {"promote": bool(deduped), "reasons": deduped}
+    return {
+        "promote": bool(deduped),
+        "reasons": deduped,
+        "needs_triage": list(dict.fromkeys(triage)),
+    }
