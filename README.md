@@ -27,6 +27,15 @@ https://github.com/hsyeo4568/meeting-minutes-skill 의 INSTALL.md를 읽고 내 
 
 Claude가 [`INSTALL.md`](INSTALL.md) 런북대로 OS·설치 경로·기존 설치 유무를 판정해 복사·의존성 설치·검증까지 하고, 처음 `/meeting-minutes`를 부르면 온보딩 인터뷰가 내 이름·조직·회의 종류·용어를 물어 config와 profile을 만든다. 손으로 설치하려면 아래 경로 B, 설치 없이 쓰려면 경로 C.
 
+**이미 예전 버전을 설치한 경우**엔 다시 설치하지 말고 업데이트만 한다. 내 `config.yaml`과 profile은 그대로 두고 엔진만 바꾸는 스크립트가 있다 — clone 받은 뒤:
+
+```bash
+python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes          # 뭐가 바뀌는지 보기
+python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply  # 적용 (백업 자동)
+```
+
+Claude에게 시킬 거면 위의 한 줄 그대로 주면 된다 — `INSTALL.md`가 기존 설치를 알아보고 이 경로로 간다.
+
 변경 내역은 [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

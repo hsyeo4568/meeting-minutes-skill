@@ -63,12 +63,28 @@ Copy-Item -Recurse "$env:TEMP\mm-skill\skills\meeting-minutes"    "$HOME\.claude
 Copy-Item -Recurse "$env:TEMP\mm-skill\skills\stt-transcript-fix" "$HOME\.claude\skills\"
 ```
 
-**업그레이드** (대상 폴더 있음): 사용자 데이터를 죽이지 말 것.
+**업그레이드** (대상 폴더 있음): **손으로 복사하지 말 것.** 전용 스크립트가 있다. 사용자가 온보딩으로 채운 `config.yaml`과 자기 profile을 되돌려버리면 업데이트 안 하느니만 못하다.
 
-- **절대 덮어쓰지 않는다:** `config.yaml`, `profiles/` 아래 사용자 프로필(= `_template`·`example-acme`가 아닌 모든 디렉터리), `verify-denylist.local`, `.mm/`.
-- 나머지(`SKILL.md`, `references/`, `scripts/`, `tests/`, `PROMPT-ONLY.md`, `SETUP.md`, `ONBOARDING.md`, `config.example.yaml`, `requirements.txt`, `verify.sh`, `profiles/_template`, `profiles/example-acme`)만 교체한다.
-- 덮기 전에 기존 폴더를 백업한다: `cp -r <skill> <skill>.backup.<YYYYMMDD>` (PowerShell도 동일하게 `Copy-Item -Recurse`).
-- 교체 후 `config.example.yaml`과 사용자의 `config.yaml`을 비교해 **새로 생긴 키**를 알려준다. 이번 릴리스에서 새로 생긴 키는 `categories.<카테고리>.body_mode`와 `materials`다(둘 다 없어도 동작 — 각각 `chronological`·자료 단계 생략으로 떨어진다).
+```bash
+# 1) 무엇이 바뀌는지 먼저 본다 (아무것도 안 씀)
+python /tmp/mm-skill/skills/meeting-minutes/scripts/update_install.py \
+    --target ~/.claude/skills/meeting-minutes
+
+# 2) 적용
+python /tmp/mm-skill/skills/meeting-minutes/scripts/update_install.py \
+    --target ~/.claude/skills/meeting-minutes --apply
+```
+
+PowerShell이면 경로만 `"$env:TEMP\mm-skill\..."`, `"$HOME\.claude\skills\meeting-minutes"`로 바꾼다. `stt-transcript-fix`는 사용자 데이터가 없으므로 폴더째 덮어써도 된다.
+
+스크립트가 보장하는 것:
+
+- `config.yaml`, 사용자 profile(`_template`·`example-acme`가 아닌 모든 디렉터리), `verify-denylist.local`, `.mm/`은 **읽지도 지우지도 않는다.**
+- 엔진 파일만 교체하고, 상위에서 없어진 엔진 파일은 여기서도 지운다.
+- `--apply` 시 `<스킬폴더>.backup.<날짜-시각>`으로 통째 백업을 먼저 뜬다.
+- 끝나고 `config.example.yaml`에 새로 생긴 키를 알려준다(이번 릴리스: `body_mode`, `materials`, `runtime.*` — 없어도 그대로 동작한다).
+
+스크립트가 없는 아주 오래된 설치라면, clone 쪽 스크립트를 그대로 쓰면 된다(위 명령이 이미 clone 경로를 가리킨다).
 
 복사가 끝나면 임시 clone을 지운다.
 

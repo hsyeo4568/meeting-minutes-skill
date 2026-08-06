@@ -33,6 +33,11 @@
 ### 설치
 
 - **`INSTALL.md` 추가.** 저장소 주소만 주면 Claude가 알아서 따라가는 설치 안내서다. 손으로 설치할 거면 기존 `skills/meeting-minutes/SETUP.md`가 그대로 정본.
+- **`scripts/update_install.py` 추가 — 1.0.0 쓰던 사람용.** 다시 설치하는 게 아니라 엔진만 갈아끼운다. `config.yaml`과 자기 profile, `verify-denylist.local`, `.mm/`은 아예 손대지 않고, `--apply` 전에 통째로 백업을 뜬다. 그냥 돌리면 뭐가 바뀌는지만 보여주고 아무것도 안 쓴다.
+
+  ```bash
+  python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
+  ```
 
 ---
 
