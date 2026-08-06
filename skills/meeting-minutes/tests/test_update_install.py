@@ -133,6 +133,29 @@ class SafeByDefault(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertEqual(list(empty.iterdir()), [])
 
+    def test_local_test_fixtures_are_not_engine_files(self):
+        """`fixtures/` is where a team keeps real transcripts to test against —
+        the skill's own .gitignore says so. Pruning `tests/` as engine territory
+        deleted them (reproduced 2026-08-06)."""
+        with TemporaryDirectory() as td:
+            src, dst = _source(Path(td)), _install(Path(td))
+            _write(dst, "tests/fixtures/real-transcript.txt", "실제 녹취\n")
+            _run(src, dst, "--apply")
+            self.assertTrue((dst / "tests/fixtures/real-transcript.txt").exists())
+
+    def test_a_second_update_in_the_same_minute_still_backs_up(self):
+        """Backup names carry a minute stamp; the second run must not die on the
+        collision after telling the user a backup would be taken."""
+        with TemporaryDirectory() as td:
+            src, dst = _source(Path(td)), _install(Path(td))
+            _run(src, dst, "--apply")
+            _write(dst, "SKILL.md", "hand-mangled\n")
+
+            r = _run(src, dst, "--apply")
+
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(len(list(dst.parent.glob(dst.name + ".backup.*"))), 2)
+
     def test_new_config_keys_are_reported_so_the_user_can_opt_in(self):
         """body_mode/materials arrived in 1.1.0; an untouched config.yaml keeps
         working, but the user has to be told the keys exist."""

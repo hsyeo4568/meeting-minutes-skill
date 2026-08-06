@@ -5,9 +5,11 @@
     python scripts/update_install.py --target ... --apply
 
 Run it from a fresh clone (that clone is the default `--source`). Engine files
-are replaced; `config.yaml`, the user's own `profiles/<team>/`,
-`verify-denylist.local` and `.mm/` are outside the managed set and are never
-read, moved, or deleted. Without `--apply` it only prints the plan.
+are replaced; the user's own `profiles/<team>/`, `verify-denylist.local`,
+`.mm/` and local `fixtures/` are outside the managed set and are never written
+or deleted. `config.yaml` is likewise never written — it is only read, after
+the copy, to list the config keys this version added. Without `--apply` the
+script only prints the plan.
 """
 from __future__ import annotations
 
@@ -28,7 +30,12 @@ MANAGED_DIRS = [
     "references", "scripts", "tests", "evals",
     "profiles/_template", "profiles/example-acme",
 ]
-NEVER_TOUCH = ["config.yaml", "verify-denylist.local", ".mm/", "profiles/<사용자 프로필>"]
+NEVER_TOUCH = ["config.yaml", "verify-denylist.local", ".mm/", "fixtures/",
+               "profiles/<사용자 프로필>"]
+# Directory names that sit inside managed trees but hold local data. `fixtures/`
+# is where a team keeps real transcripts to test against (see .gitignore), so
+# walking `tests/` as engine territory would prune them away.
+PROTECTED_PARTS = {"fixtures", "__pycache__"}
 
 
 def managed_rel_paths(root: Path) -> set[str]:
@@ -38,7 +45,7 @@ def managed_rel_paths(root: Path) -> set[str]:
         if not base.is_dir():
             continue
         for p in base.rglob("*"):
-            if p.is_file() and "__pycache__" not in p.parts:
+            if p.is_file() and not PROTECTED_PARTS.intersection(p.parts):
                 found.add(p.relative_to(root).as_posix())
     return found
 
@@ -143,7 +150,14 @@ def main() -> int:
         print("== 계획만 출력함. 실제 적용하려면 --apply")
         return 0
 
-    backup = target.parent / f"{target.name}.backup.{datetime.now():%Y%m%d-%H%M}"
+    # Two updates in the same minute must not collide — the backup is the only
+    # way back, so a name clash may never abort the run.
+    stamp = f"{datetime.now():%Y%m%d-%H%M}"
+    backup = target.parent / f"{target.name}.backup.{stamp}"
+    serial = 2
+    while backup.exists():
+        backup = target.parent / f"{target.name}.backup.{stamp}-{serial}"
+        serial += 1
     shutil.copytree(target, backup, dirs_exist_ok=False)
     print(f"== 백업: {backup}")
 

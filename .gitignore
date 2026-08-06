@@ -8,3 +8,8 @@ sync-config.local.json
 *.bak
 *.local.json
 __pycache__/
+
+# Stop-hook state. `.sync-blocked` quotes the lines the leak gate rejected —
+# i.e. the org/people tokens themselves — so it must never be committable here.
+.sync-blocked
+.last-autosync

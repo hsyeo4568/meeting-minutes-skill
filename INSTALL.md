@@ -79,7 +79,7 @@ PowerShell이면 경로만 `"$env:TEMP\mm-skill\..."`, `"$HOME\.claude\skills\me
 
 스크립트가 보장하는 것:
 
-- `config.yaml`, 사용자 profile(`_template`·`example-acme`가 아닌 모든 디렉터리), `verify-denylist.local`, `.mm/`은 **읽지도 지우지도 않는다.**
+- 사용자 profile(`_template`·`example-acme`가 아닌 모든 디렉터리), `verify-denylist.local`, `.mm/`, 로컬 `fixtures/`(실제 녹취가 들어 있는 곳)는 **쓰지도 지우지도 않는다.** `config.yaml`도 마찬가지로 수정하지 않으며, 복사가 끝난 뒤 새로 생긴 설정 키를 알려주기 위해 읽기만 한다.
 - 엔진 파일만 교체하고, 상위에서 없어진 엔진 파일은 여기서도 지운다.
 - `--apply` 시 `<스킬폴더>.backup.<날짜-시각>`으로 통째 백업을 먼저 뜬다.
 - 끝나고 `config.example.yaml`에 새로 생긴 키를 알려준다(이번 릴리스: `body_mode`, `materials`, `runtime.*` — 없어도 그대로 동작한다).
