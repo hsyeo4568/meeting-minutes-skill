@@ -528,3 +528,90 @@ def test_gc_never_touches_a_live_run(capsys, doc, cfg):
     code, out = run(capsys, "gc", "--doc", doc, "--days", "0")
     assert code == 0 and out["pruned"] == []
     assert (state_dir(doc) / "runs" / run_id / "source.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# verify --readback-unavailable — a named gap instead of a manufactured green
+# ---------------------------------------------------------------------------
+#
+# Some channels hand their response back through a tool result that never
+# reaches disk (Slack canvas over MCP). RUNTIME-PROTOCOL rule 2 says: say so,
+# do not rebuild the read-back from the body you sent. Twice now the prose lost
+# — gmail 2026-07-29, canvas 2026-08-07 — so the escape hatch is a command.
+
+def test_readback_unavailable_does_not_reach_verified(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    code, out = run(capsys, "verify", "--doc", doc, "--lease", lease,
+                    "--artifact", "canvas",
+                    "--readback-unavailable", "MCP returns markdown in the tool result only")
+    assert code == 0, out
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["status"] == "manual_required"
+    assert art.get("readback_sha256") is None
+
+
+def test_readback_unavailable_blocks_close_until_a_human_confirms(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease, artifacts=("vault", "gmail"))
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    run(capsys, "verify", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+        "--readback-unavailable", "no mechanical read-back")
+    code, out = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert code == 7
+    assert any("canvas" in b for b in out["blockers"])
+
+
+def test_readback_unavailable_records_the_reason_for_audit(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    run(capsys, "verify", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+        "--readback-unavailable", "MCP tool result only")
+    events = S.read_events(state_dir(doc) / "runs.jsonl")
+    gap = [e for e in events if e["event"] == "readback_unavailable"]
+    assert len(gap) == 1
+    assert "MCP tool result only" in gap[0]["detail"]
+    assert gap[0]["root_cause_key"] == "canvas.readback_unavailable"
+
+
+def test_readback_unavailable_needs_a_reason(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    code, _ = run(capsys, "verify", "--doc", doc, "--lease", lease,
+                  "--artifact", "canvas", "--readback-unavailable", "   ")
+    assert code == 2
+
+
+def test_readback_file_and_readback_unavailable_are_mutually_exclusive(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    back = doc.parent / "rb.md"
+    back.write_bytes(DOC.encode("utf-8"))
+    code, _ = run(capsys, "verify", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+                  "--readback-file", back, "--readback-unavailable", "reason")
+    assert code == 2
+
+
+def test_verify_with_neither_source_exits_2(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    code, _ = run(capsys, "verify", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    assert code == 2
+
+
+def test_a_real_readback_after_a_named_gap_still_verifies(capsys, doc, cfg):
+    """The gap is a hold, not a dead end — a later genuine read-back clears it."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    run(capsys, "verify", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+        "--readback-unavailable", "no mechanical read-back")
+    code, _ = _verify(capsys, doc, lease)
+    assert code == 0
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "readback_verified"

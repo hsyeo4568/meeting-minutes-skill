@@ -66,7 +66,7 @@ Out-of-band commands:
 | 2 | usage / config | fix the invocation; do not improvise around it |
 | 3 | **source hash mismatch** | BLOCKING. The work MD changed after approval. Show the printed diff, get re-approval (`approve` again), and re-derive artifacts already built from the stale content |
 | 4 | read-back mismatch | the artifact is not synced. Report what differs; do not create a second one |
-| 5 | lock held by another owner | another session is publishing this doc. Stop; `status` still works |
+| 5 | lock held by another owner | another session is publishing this doc. Stop; `status` still works. **Exception — the lease may be your own**: a source edit mid-run forces a re-`approve`, and the still-live run from the same session holds the lock. Check `status`; if the holder is this session's run and nothing was published yet, `abort --lease <yours>` first, then `approve`. Do not wait out the TTL and do not touch the doc index by hand |
 | 6 | illegal transition | the step is out of order (e.g. `record` without a `gate`) |
 | 7 | completeness check failed | `close` found unverified artifacts or open blocking manual items |
 
