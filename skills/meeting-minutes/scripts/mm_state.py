@@ -163,6 +163,13 @@ def plan_artifacts(cfg: dict, category: str, include_optional: bool = False) -> 
     declared matrix and the runtime plan cannot drift apart.
     """
     categories = cfg.get("categories") or {}
+    if not categories:
+        # An omitted --config loads as {}, so the category lookup is what fails
+        # and the old message blamed the category. Name the real cause.
+        raise ConfigError(
+            f"no categories loaded — config missing or empty, so {category!r} "
+            f"cannot be resolved; pass --config <path to config.yaml>"
+        )
     row = categories.get(category)
     if row is None:
         raise ConfigError(

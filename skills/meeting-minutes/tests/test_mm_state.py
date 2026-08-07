@@ -136,6 +136,16 @@ def test_plan_unknown_category_raises():
         S.plan_artifacts(_CFG, "nope")
 
 
+def test_empty_matrix_blames_the_config_not_the_category():
+    """`--config` omitted resolves to {} — the old message read
+    "unknown category 'workshop' — config declares []", which points at the
+    category when the cause is that no config was loaded at all."""
+    with pytest.raises(S.ConfigError) as exc:
+        S.plan_artifacts({}, "workshop")
+    assert "no categories" in str(exc.value)
+    assert "--config" in str(exc.value)
+
+
 # ---------------------------------------------------------------------------
 # transition table (§4)
 # ---------------------------------------------------------------------------

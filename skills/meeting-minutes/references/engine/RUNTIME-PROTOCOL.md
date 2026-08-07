@@ -43,6 +43,9 @@ mm_run approve --doc <work_md> --config config.yaml --category <cat> [--preappro
                   --body-file <exact body sent> [--url <permalink>]
     mm_run verify --doc <work_md> --lease <L> --artifact <A> \
                   --readback-file <exact bytes read back from the tool>
+      -- or, only when that channel cannot put its response on disk --
+    mm_run verify --doc <work_md> --lease <L> --artifact <A> \
+                  --readback-unavailable "<why>"   # holds it open, never verifies
 
 mm_run close  --doc <work_md> --lease <L>
 ```
@@ -80,8 +83,11 @@ Out-of-band commands:
    makes `verify` compare the sent text with a copy of itself: it passes every time and proves
    nothing. Measured 2026-07-29 — two gmail `verify`s passed on a reconstruction of the sent body,
    so the gate gave no delivery assurance at all. If a channel's response cannot be written to disk
-   mechanically, say so in the closing summary instead of manufacturing a read-back; a named gap
-   beats a green light that means nothing.
+   mechanically, **run `verify --readback-unavailable "<why>"`** — the artifact stops at
+   `manual_required`, a blocking manual item is opened, and `close` stays shut until a human
+   confirms it by eye; a later genuine read-back still clears it. Say so in the closing summary too.
+   A named gap beats a green light that means nothing. (Prose alone lost twice — gmail 2026-07-29,
+   canvas 2026-08-07 — which is why the escape hatch is now a command, not an instruction.)
 3. **Never retry by re-creating.** After any tool error, log it with `fail`, then run `gate`
    again — it returns `action: readback` when an id was already recorded.
 4. **A blocking exit is a stop.** Do not run later phases (canonical save, index, topic sync,

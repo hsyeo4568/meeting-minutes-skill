@@ -361,6 +361,37 @@ def cmd_record(a) -> int:
     return 0
 
 
+def _record_readback_gap(ws, manifest, art, a, doc_id, run_id) -> int:
+    """Hold an artifact open when its channel cannot hand a read-back to disk.
+
+    Some responses only exist inside a tool result (Slack canvas over MCP).
+    Rebuilding the read-back from the sent body would compare the text with a
+    copy of itself and pass every time, so the alternative to a real read-back
+    is a *named gap*: the artifact stops at ``manual_required`` and a blocking
+    manual item keeps ``close`` shut until a human confirms the artifact by eye.
+    """
+    reason = a.readback_unavailable.strip()
+    if not reason:
+        raise S.ConfigError("--readback-unavailable needs a reason")
+
+    S.assert_artifact_transition(art["status"], "manual_required")
+    art.update(status="manual_required", updated_at=S.iso(S.utcnow()))
+    items = manifest["manual_required"]
+    item = {"id": f"m{len(items) + 1}",
+            "text": f"{a.artifact}: 눈으로 대조 후 확인 — 기계 read-back 불가 ({reason})",
+            "blocking": True, "done": False, "done_at": None}
+    items.append(item)
+    ws.save_manifest(manifest)
+    ws.log(doc_id=doc_id, run_id=run_id, event="readback_unavailable",
+           artifact=a.artifact, failure_class="external",
+           root_cause_key=f"{a.artifact}.readback_unavailable",
+           impact="manual_recovery", detail=reason)
+    emit({"artifact": a.artifact, "status": "manual_required",
+          "manual_item": item["id"], "reason": reason},
+         f"{a.artifact} NOT verified — read-back unavailable, held as {item['id']}")
+    return 0
+
+
 def cmd_verify(a) -> int:
     cfg = load_config(a.config)
     ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
@@ -368,6 +399,9 @@ def cmd_verify(a) -> int:
     require_lease(ws, doc_id, a.lease)
     art = require_planned(manifest, a.artifact)
     enforce_hash(ws, manifest, cfg, "verify_blocked")
+
+    if a.readback_unavailable is not None:
+        return _record_readback_gap(ws, manifest, art, a, doc_id, run_id)
 
     back_text = pathlib.Path(a.readback_file).read_text(encoding="utf-8")
     back = S.body_hash(back_text)
@@ -642,7 +676,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     v = common(sub.add_parser("verify"))
     v.add_argument("--artifact", required=True)
-    v.add_argument("--readback-file", required=True)
+    # Exactly one source. Neither is not a shortcut to done, and both together
+    # would let a manufactured file ride in beside a declared gap.
+    src = v.add_mutually_exclusive_group(required=True)
+    src.add_argument("--readback-file")
+    src.add_argument("--readback-unavailable", metavar="REASON",
+                     help="the channel cannot hand its response to disk; hold "
+                          "the artifact open instead of faking a read-back")
     v.set_defaults(func=cmd_verify)
 
     m = common(sub.add_parser("manual"))
@@ -686,7 +726,13 @@ def main(argv: list[str] | None = None) -> int:
                 stream.reconfigure(encoding="utf-8")
             except (ValueError, OSError):
                 pass
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:
+        # argparse exits the process on a usage error (and on --help). Route it
+        # through the same int-returning contract as every other exit code, so
+        # a usage error is exit 2 whether it came from argparse or ConfigError.
+        return int(exc.code or 0)
     try:
         return args.func(args)
     except S.MmError as exc:
