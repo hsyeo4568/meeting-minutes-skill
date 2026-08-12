@@ -86,7 +86,7 @@ Out-of-band commands:
    mechanically, **run `verify --readback-unavailable "<why>"`** — the artifact stops at
    `manual_required`, a blocking manual item is opened, and `close` stays shut until a human
    confirms it by eye; a later genuine read-back still clears it. Say so in the closing summary too.
-   A named gap beats a green light that means nothing. (Prose alone lost twice — gmail 2026-07-29,
+   A named gap beats a green light that means nothing. **Mail-draft channels are the usual case:** if the draft API returns the body only as an inline tool response with no on-disk artifact, that is not a mechanical read-back — reading it and then re-emitting the sent bytes proves nothing. Inspect the response, then run `verify --readback-unavailable` and let a human confirm. (Prose alone lost twice — gmail 2026-07-29,
    canvas 2026-08-07 — which is why the escape hatch is now a command, not an instruction.)
 3. **Never retry by re-creating.** After any tool error, log it with `fail`, then run `gate`
    again — it returns `action: readback` when an id was already recorded.

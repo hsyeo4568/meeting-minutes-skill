@@ -87,6 +87,7 @@ Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee a
 - Verify against the source-of-truth sheet in the working folder (e.g. the list tab of `issues_260105.xlsx`) before finalizing.
 - Before querying the sheet, print sheet names and column names first to verify whitespace/case — schema first.
 - If `profile=null`: skip cross-check — keep placeholders or ask the user to confirm.
+- **Never infer which segment/series a figure belongs to from its position in an export.** Dashboard PDF/image exports drop the label-value binding and leave only reading order, so a plausible-looking order is not evidence. Accept a figure only when an independent identity pins it (a sum that reconciles, a per-unit ratio that reproduces, a transcript line naming the segment); otherwise report the figure without the segment claim, or omit it. Symptom that the order guess is wrong: the export yields fewer current-period values than prior-period ones (one silently dropped from the text layer), or a value no derived formula can reproduce.
 
 ## 9. Regular Meetings Only — Avoid Duplicating Report Content
 
