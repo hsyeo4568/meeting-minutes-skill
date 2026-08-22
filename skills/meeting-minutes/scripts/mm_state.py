@@ -34,7 +34,8 @@ RUN_TRANSITIONS = {
     "open":       {"approved", "aborted"},
     "approved":   {"publishing", "superseded", "aborted"},
     "publishing": {"complete", "superseded", "aborted"},
-    "complete":   set(),
+    "complete":   {"reopened"},
+    "reopened":   {"publishing", "superseded", "aborted"},
     "superseded": set(),
     "aborted":    set(),
 }
@@ -78,6 +79,10 @@ class HashMismatch(MmError):
 
 class ReadbackMismatch(MmError):
     exit_code = 4
+
+
+class ReadbackInputError(ReadbackMismatch):
+    """A read-back source could not be read, decoded, or trusted."""
 
 
 class LockHeld(MmError):
@@ -180,6 +185,11 @@ def plan_artifacts(cfg: dict, category: str, include_optional: bool = False) -> 
         value = row.get(key)
         if value is True or (value == "optional" and include_optional):
             plan.append(key)
+    if (cfg.get("ontology") or {}).get("required") is True:
+        # A required graph update is not an optional post-processing side
+        # effect. Model it as a normal, exact-readback artifact so ``close``
+        # cannot report completion before graph load or TTL degradation exists.
+        plan.append("ontology")
     return plan
 
 

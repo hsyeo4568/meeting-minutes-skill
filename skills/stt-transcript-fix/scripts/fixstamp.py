@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""fixstamp -- re-run skip gate for transcript correction. v2.3
+"""fixstamp -- re-run skip gate for transcript correction. v2.4
 
 Commands:
   check       exit 0=skip, 1=new, 2=file-changed, 3=glossary/version-changed, 4=error
@@ -28,10 +28,18 @@ from _utils import QUICK_SCAN_MIN_DENSITY
 
 # Bump whenever correction RULES change (not just this file) — stamps from older
 # versions must invalidate so already-"reviewed" files get re-reviewed under the
-# new rules (codex review 2026-07-12 #2). 2.3: speaker-header immutability,
+# new rules (codex review 2026-07-12 #2). 2.4: speaker-header immutability,
 # manifest schema/numeric guards, directional boundary, marker cap enforcement,
 # migrate removal.
-SKILL_VERSION = "2.3"
+SKILL_VERSION = "2.4"
+
+
+def _skip_sensitive_target(target: Path) -> bool:
+    """Classify sensitive-name files without content I/O or side effects."""
+    if not U.is_sensitive_filename(target):
+        return False
+    print(f"SKIP: sensitive-name file — no read, stamp, or sidecar: {target.name}")
+    return True
 
 
 def sha256(p: Path) -> str:
@@ -63,6 +71,8 @@ def _decide(fm: bool, gm: bool, vm: bool, target_name: str, old: dict, dry_run: 
 
 
 def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
+    if _skip_sensitive_target(target):
+        return 0
     if not target.exists():
         print(f"ERROR: transcript not found: {target}")
         return 4
@@ -101,7 +111,9 @@ def check_file(target: Path, glossary: Path, dry_run: bool = False) -> int:
 
 
 def write_stamp(target: Path, glossary: Path) -> int:
-    """Write stamp. Verifies file was modified since last check (warns if not)."""
+    """Write a stamp only for the exact post-correction bytes we reviewed."""
+    if _skip_sensitive_target(target):
+        return 0
     if not target.exists():
         print(f"ERROR: transcript not found: {target}")
         return 4
@@ -109,26 +121,38 @@ def write_stamp(target: Path, glossary: Path) -> int:
         print(f"ERROR: glossary not found: {glossary}")
         return 4
 
-    stamp = target.with_name(target.name + ".fixstamp")
-    cur_hash = sha256(target)
-    prev_hash = None
-    if stamp.exists():
-        try:
-            prev_hash = json.loads(stamp.read_text(encoding="utf-8")).get("file_sha256")
-        except (ValueError, OSError) as e:
-            print(f"NOTE: prior stamp unreadable ({e}); skipping unchanged-file check")
-
-    if prev_hash and prev_hash == cur_hash:
-        print(f"WARNING: {target.name} — file unchanged since last stamp (stamping anyway)")
-
     if not U.acquire_lock(target):
         print(f"ERROR: could not lock {target.name}")
         return 4
 
     try:
+        stamp = target.with_name(target.name + ".fixstamp")
+        receipt = target.with_name(target.name + ".fixstamp.pending")
+        cur_hash = sha256(target)
+        if receipt.exists():
+            try:
+                expected = json.loads(receipt.read_text(encoding="utf-8"))["file_sha256"]
+            except (KeyError, TypeError, ValueError, OSError) as e:
+                print(f"ERROR: unreadable correction receipt for {target.name}: {e}")
+                return 4
+            if expected != cur_hash:
+                print(f"ERROR: {target.name} changed after correction; refusing to stamp stale review")
+                return 4
+
+        prev_hash = None
+        if stamp.exists():
+            try:
+                prev_hash = json.loads(stamp.read_text(encoding="utf-8")).get("file_sha256")
+            except (ValueError, OSError) as e:
+                print(f"NOTE: prior stamp unreadable ({e}); skipping unchanged-file check")
+        if prev_hash and prev_hash == cur_hash:
+            print(f"WARNING: {target.name} — file unchanged since last stamp (stamping anyway)")
+
         cur = {"file_sha256": cur_hash, "glossary_sha256": sha256(glossary),
                "skill_version": SKILL_VERSION}
         stamp.write_text(json.dumps(cur), encoding="utf-8")
+        if receipt.exists():
+            receipt.unlink()
         print(f"STAMPED: {target.name}")
         return 0
     finally:
@@ -167,6 +191,8 @@ def _glossary_hits(text: str, variants_section: str) -> int:
 
 
 def quick_scan(target: Path, glossary: Path, threshold: float = QUICK_SCAN_MIN_DENSITY) -> int:
+    if _skip_sensitive_target(target):
+        return 0
     if not target.exists():
         print(f"ERROR: transcript not found: {target}")
         return 4
@@ -241,9 +267,12 @@ def scan_candidates(target: Path, glossary: Path) -> dict:
     Eliminates the hallucinated-old-string failure mode: every entry's `old`
     is an actual occurrence in the file, and its count matches what
     fix_template will replace (same masking + count_variant)."""
+    if U.is_sensitive_filename(target):
+        raise ValueError(f"sensitive-name target refused before read: {target.name}")
     enc = U.detect_encoding(target)
     text = target.read_text(encoding=enc)
     masked, _spans = U.mask_comments(text)  # (*...) spans excluded, as apply does
+    masked, _header_spans = U.mask_speaker_headers(masked)
     vsec = extract_section(glossary.read_text(encoding="utf-8"), "## 1.", "## 2.")
     auto, review, seen = [], [], set()
     for _canon, variant, tgt, is_ctx in _parse_glossary_rows(vsec):
@@ -267,6 +296,8 @@ def scan_candidates(target: Path, glossary: Path) -> dict:
 def scan(target: Path, glossary: Path) -> int:
     """CLI: print a count-grounded candidate manifest as JSON (stdout) + summary
     (stderr). exit 0 = candidates found, 1 = none, 4 = error."""
+    if _skip_sensitive_target(target):
+        return 0
     if not target.exists():
         print(f"ERROR: transcript not found: {target}")
         return 4
@@ -340,10 +371,15 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
     variants_section = extract_section(glossary_text, "## 1.", "## 2.")
     U.set_glossary_variants_cache(variants_section)
 
-    skip_count, new_count, run_count, err_count, low_density = 0, 0, 0, 0, 0
+    skip_count, new_count, run_count, err_count, low_density, sensitive_count = 0, 0, 0, 0, 0, 0
     total = len(txt_files)
     for i, f in enumerate(txt_files):
         pct = (i + 1) * 100 // total
+        if U.is_sensitive_filename(f):
+            sensitive_count += 1
+            skip_count += 1
+            print(f"  [{pct}%] SKIP: sensitive-name file — no read/stamp: {f.name}")
+            continue
         # Stamp check FIRST. Quick-scan must never pre-filter: contextual
         # corrections, markers and number protection do not correlate with
         # glossary variant density, so a density skip on a new/changed file
@@ -379,8 +415,8 @@ def batch_check(folder: Path, glossary: Path, dry_run: bool = False) -> int:
 
     U.set_glossary_variants_cache(None)
     label = "DRY-RUN " if dry_run else ""
-    print(f"\n{label}SUMMARY: {new_count} new, {run_count} changed, {skip_count} unchanged, "
-          f"{err_count} errors, {low_density} low-density, {total} total")
+    print(f"\n{label}SUMMARY: {new_count} new, {run_count} changed, {skip_count} skipped "
+          f"({sensitive_count} sensitive), {err_count} errors, {low_density} low-density, {total} total")
     return 0 if (new_count + run_count + err_count) == 0 else 1
 
 
@@ -431,7 +467,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ("scan", "emit count-grounded candidate manifest JSON (anti-hallucination)"),
     ):
         sp = sub.add_parser(cmd, help=help_text, parents=[common])
-        sp.add_argument("target", help="transcript file (batch: folder)")
+        sp.add_argument("target", help="transcript file (a folder belongs to `batch`)")
         sp.add_argument("glossary", help="glossary .md file")
 
     # batch: folder + glossary
@@ -464,6 +500,14 @@ def main() -> int:
 
     target = Path(args.target)
     glossary = Path(args.glossary)
+
+    # File commands hash their target before anything else, so a folder used to
+    # surface as a raw PermissionError traceback and exit 1 — outside the
+    # documented 0/1/2/3 verdict + 4 error contract, and invited by the old help
+    # text ("batch: folder"). Reject the misuse in the CLI layer instead.
+    if args.cmd != "batch" and target.is_dir():
+        print(f"ERROR: {target.name} is a folder — use `batch` for folder input")
+        return 4
 
     if args.cmd == "batch":
         return batch_check(target, glossary, dry_run=dry_run)

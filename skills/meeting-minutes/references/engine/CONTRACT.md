@@ -42,9 +42,11 @@ Profile-supplied (engine references them but does NOT hardcode values; profile f
 5. Share routing — per category: share_md / canvas / gmail. Missing tool -> file fallback.
 6. Canonical save — write the authoritative copy to the configured store (config.paths.vault — a notes vault / docs folder / wiki; org-dependent) with config.vault_frontmatter. Optional: index (qmd) if available.
 6.5. Topic sync — optional; only if config.paths.topics_moc is set: append meeting evidence lines to matching topic notes (append-only). Skip entirely if the key is absent.
-7. Knowledge-graph update — record decisions/relations if tools.ontology available; else skip entirely (optional add-on, not required for a valid run).
+7. Knowledge-graph update — record decisions/relations according to `config.ontology`.
+   - When `config.ontology.required: true`, it is a normal completion artifact: validate/load through the configured runner when available; otherwise save a validated `.ttl` as a **degraded, deferred-load artifact** and report the reason and path. Never silently skip a required graph update.
+   - When `required: false` (or no `ontology` key), skip phase 7 as an optional add-on.
 
-## Degradation principle (gate #2 — checklist, read-through of SKILL.md)
+## Degradation principle (gate #2 — enforced by `scripts/verify_degradation.py`)
 
 Every tool branch has a no-tool fallback that emits a `.md` file + manual-step note, and NEVER
 errors out. profile=null -> skip domain/contact cross-checks, proceed with placeholders.

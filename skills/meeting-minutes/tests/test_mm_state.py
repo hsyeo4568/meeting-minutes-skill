@@ -126,6 +126,11 @@ def test_plan_includes_optional_when_asked():
         "vault", "canvas", "gmail"]
 
 
+def test_plan_includes_required_ontology_as_a_verified_artifact():
+    cfg = dict(_CFG, ontology={"required": True})
+    assert S.plan_artifacts(cfg, "daily") == ["vault", "canvas", "gmail", "ontology"]
+
+
 def test_plan_ignores_non_artifact_keys():
     assert "context_lookback" not in S.plan_artifacts(_CFG, "daily")
     assert "detail_md" not in S.plan_artifacts(_CFG, "daily")

@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Unit tests for stt-transcript-fix scripts (_utils.py, fix_template.py)."""
+import builtins
 import json
 import os
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -256,6 +259,25 @@ def test_scan_candidates_grounded_no_hallucination(tmp_path):
     assert not any(r[0] == "SNP" for r in res["review"])
 
 
+def test_scan_and_apply_share_speaker_masking_for_plain_name_prefix(tmp_path):
+    """S4: scan counts must equal the executor's masked count."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text(
+        "## 1. 교정\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **박상호** | 박상우 |\n## 2. 끝\n",
+        encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text("박상우: 박상우가 확인했습니다\n", encoding="utf-8")
+    res = FS.scan_candidates(target, glossary)
+    assert res["auto"] == [["박상우", "박상호", 1]]
+    manifest = tmp_path / "m.json"
+    manifest.write_text(json.dumps({"replacements": res["auto"], "markers": []}, ensure_ascii=False),
+                        encoding="utf-8")
+    run = run_fix([target, "--json", manifest])
+    assert run.returncode == 0, run.stdout
+    assert target.read_text(encoding="utf-8") == "박상우: 박상호가 확인했습니다\n"
+
+
 def test_safe_replace_truncation_edge_with_korean_particle():
     """Regression (1p practice, 2026-07-12): new⊂old truncation where `old` ends
     in a Hangul char must still match when a Korean particle glues after it.
@@ -473,6 +495,19 @@ def test_main_releases_lock_on_success(tmp_path):
     assert not (tmp_path / "t.txt.lock").exists()
     assert "임피던스" in transcript.read_text(encoding="utf-8")
     assert (tmp_path / "t.txt.bak").exists()
+
+
+def test_successful_fix_writes_a_pending_stamp_receipt(tmp_path):
+    """S3: the later stamp command needs the exact post-apply hash to verify."""
+    import hashlib
+
+    transcript, corr = _write_fixture(tmp_path, expected_count=1)
+    result = run_fix([transcript, "--json", corr])
+    assert result.returncode == 0, result.stdout
+    receipt = transcript.with_name(transcript.name + ".fixstamp.pending")
+    assert receipt.exists()
+    data = json.loads(receipt.read_text(encoding="utf-8"))
+    assert data["file_sha256"] == hashlib.sha256(transcript.read_bytes()).hexdigest()
 
 
 def test_main_releases_lock_on_count_mismatch_halt(tmp_path):
@@ -712,6 +747,15 @@ def test_speaker_header_never_rewritten_by_replacement(tmp_path):
     assert lines[1] == "본문 박상호 발언"        # body corrected
 
 
+def test_plain_name_speaker_prefix_is_never_rewritten_but_utterance_is_corrected(tmp_path):
+    """S1: plain ``이름: 발언`` labels are attribution, not transcript body."""
+    text = "박상우: 박상우가 확인했습니다\n"
+    t, r = _run_manifest(tmp_path, text, {
+        "replacements": [["박상우", "박상호", 1]], "contextual": [], "markers": []})
+    assert r.returncode == 0, r.stdout
+    assert t.read_text(encoding="utf-8") == "박상우: 박상호가 확인했습니다\n"
+
+
 def test_numeric_rule_rejected_without_flag(tmp_path):
     """v2 #2: numbers are Tier-C — silent value edits must be refused."""
     _, r = _run_manifest(tmp_path, "이번 주 20.3대 확인\n", {
@@ -786,6 +830,17 @@ def test_marker_cap_enforced(tmp_path):
     assert "cap" in r.stdout
 
 
+def test_marker_cap_counts_existing_markers_before_new_insertions(tmp_path):
+    """S5: a rerun cannot double marker density past the global cap."""
+    original = "00:01 화자\n" + "\n".join(
+        f"본문 {i} (*기존_{i})" for i in range(1, 16)) + "\n"
+    t, r = _run_manifest(tmp_path, original, {
+        "replacements": [], "contextual": [], "markers": [[2, "(*신규)"]]})
+    assert r.returncode == 1
+    assert "markers > cap" in r.stdout
+    assert t.read_text(encoding="utf-8") == original
+
+
 def test_nested_marker_halts_run(tmp_path):
     """v2 #10: nested (* is Tier-C — warn-and-continue let the file be saved."""
     t, r = _run_manifest(tmp_path, "(*외부 (*내부) 끝) 구정 내용\n", {
@@ -793,6 +848,16 @@ def test_nested_marker_halts_run(tmp_path):
     assert r.returncode == 1
     assert "TIER-C" in r.stdout
     assert "구정" in t.read_text(encoding="utf-8")  # untouched
+
+
+def test_imbalanced_marker_halts_run_before_any_correction(tmp_path):
+    """S2: an imbalanced marker is Tier-C, so the whole file stays untouched."""
+    original = "(*열림\n\n구정 내용\n"
+    t, r = _run_manifest(tmp_path, original, {
+        "replacements": [["구정", "규정", 1]], "contextual": [], "markers": []})
+    assert r.returncode == 1
+    assert "TIER-C" in r.stdout
+    assert t.read_text(encoding="utf-8") == original
 
 
 def test_placeholder_literal_collision_survives(tmp_path):
@@ -987,6 +1052,26 @@ def test_write_stamp_releases_lock_when_write_fails(tmp_path, monkeypatch):
     assert not lock.exists()  # finally must release even on write failure
 
 
+def test_write_stamp_refuses_a_changed_file_after_apply_receipt(tmp_path, capsys):
+    """S3: a post-apply receipt must not stamp a later external edit as reviewed."""
+    import hashlib
+
+    target = tmp_path / "t.txt"
+    target.write_text("교정 직후", encoding="utf-8")
+    glossary = tmp_path / "glossary.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+    receipt = target.with_name(target.name + ".fixstamp.pending")
+    receipt.write_text(json.dumps({
+        "file_sha256": hashlib.sha256(target.read_bytes()).hexdigest()}, ensure_ascii=False),
+        encoding="utf-8")
+    target.write_text("외부 편집이 적용됨", encoding="utf-8")
+
+    assert FS.write_stamp(target, glossary) == 4
+    assert not target.with_name(target.name + ".fixstamp").exists()
+    assert receipt.exists(), "mismatched receipt is evidence and must not be deleted"
+    assert "changed after correction" in capsys.readouterr().out
+
+
 # =========================================================================
 # 10. fixstamp.extract_section — DRY single source of truth for §-slicing
 # =========================================================================
@@ -1051,6 +1136,60 @@ def test_check_file_new_when_no_stamp(tmp_path, capsys):
     glossary.write_text("# glossary", encoding="utf-8")
     assert FS.check_file(target, glossary) == 1
     assert "new file" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["고객-명단.txt", unicodedata.normalize("NFD", "고객-명단.txt")],
+    ids=["nfc", "nfd"],
+)
+def test_sensitive_filename_is_never_read_stamped_or_sidecar_created(filename, tmp_path, monkeypatch, capsys):
+    """Privacy gate: filename classification must stop before target-content I/O."""
+    target = tmp_path / filename
+    target.write_text("절대 읽으면 안 되는 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# glossary", encoding="utf-8")
+
+    original_read_bytes = Path.read_bytes
+    original_read_text = Path.read_text
+    original_open = builtins.open
+
+    def reject_target_bytes(path, *args, **kwargs):
+        if path == target:
+            raise AssertionError("sensitive target must not be read_bytes()")
+        return original_read_bytes(path, *args, **kwargs)
+
+    def reject_target_text(path, *args, **kwargs):
+        if path == target:
+            raise AssertionError("sensitive target must not be read_text()")
+        return original_read_text(path, *args, **kwargs)
+
+    def reject_target_open(file, *args, **kwargs):
+        if Path(file) == target:
+            raise AssertionError("sensitive target must not be opened")
+        return original_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_target_bytes)
+    monkeypatch.setattr(Path, "read_text", reject_target_text)
+    monkeypatch.setattr(builtins, "open", reject_target_open)
+
+    assert FS.check_file(target, glossary) == 0
+    assert FS.write_stamp(target, glossary) == 0
+    assert FS.quick_scan(target, glossary) == 0
+    assert FS.scan(target, glossary) == 0
+    with pytest.raises(ValueError, match="sensitive-name"):
+        FS.scan_candidates(target, glossary)
+    assert FS.batch_check(tmp_path, glossary) == 0
+
+    monkeypatch.setattr(FT, "parse_args", lambda: SimpleNamespace(transcript=str(target)))
+    with pytest.raises(SystemExit) as excinfo:
+        FT.main()
+    assert excinfo.value.code == 1
+
+    assert not target.with_name(target.name + ".fixstamp").exists()
+    assert not target.with_name(target.name + ".fixstamp.pending").exists()
+    assert not target.with_name(target.name + ".lock").exists()
+    assert "sensitive-name" in capsys.readouterr().out
 
 
 def test_check_file_file_changed(tmp_path, capsys):
@@ -1201,3 +1340,74 @@ def test_main_write_then_check_skip(tmp_path):
     r_check = run_stamp(["check", str(target), str(glossary)])
     assert r_check.returncode == 0
     assert "SKIP" in r_check.stdout
+
+
+def test_skill_uses_msys_safe_temp_path_and_lazy_references():
+    """S6: Bash runtime docs must not leak manifests through PowerShell syntax."""
+    skill = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(encoding="utf-8")
+    assert "$env:TEMP" not in skill
+    assert "$LOCALAPPDATA/Temp" in skill
+    for reference in ("references/batch-mode.md", "references/marker-policy.md",
+                      "references/encoding-fallback.md"):
+        assert reference in skill
+
+
+def test_lazy_references_define_reachable_safety_boundaries():
+    """S6: linked references must retain the conditional safety rules."""
+    root = Path(__file__).resolve().parent.parent
+    expectations = {
+        "references/batch-mode.md": ("$LOCALAPPDATA/Temp", "read-only", "max 3"),
+        "references/marker-policy.md": ("fail-closed", "Tier-C", "max(15, lines // 16)"),
+        "references/encoding-fallback.md": ("UTF-16", "line-count parity", "restore"),
+    }
+    for relative_path, required_terms in expectations.items():
+        reference = root / relative_path
+        assert reference.is_file(), f"missing lazy reference: {relative_path}"
+        text = reference.read_text(encoding="utf-8").strip()
+        assert text, f"empty lazy reference: {relative_path}"
+        for term in required_terms:
+            assert term in text, f"{relative_path} omits required safety term: {term}"
+
+
+@pytest.mark.parametrize("command", ["check", "write", "scan", "quick-scan"])
+def test_file_command_on_directory_returns_structured_error_not_traceback(command, tmp_path):
+    """A folder given to a file command must fail loud with exit 4, never a traceback.
+
+    `check --help` advertises folder input, so the misuse is invited by the CLI
+    itself; a raw PermissionError also breaks the documented exit contract
+    (0/1/2/3 = verdicts, 4 = error).
+    """
+    folder = tmp_path / "transcripts"
+    folder.mkdir()
+    (folder / "a.txt").write_text("홍길동: 내용", encoding="utf-8")
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# g", encoding="utf-8")
+
+    result = run_stamp([command, str(folder), str(glossary)])
+
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert "ERROR" in result.stdout
+    assert "batch" in result.stdout
+
+
+@pytest.mark.parametrize("command", ["check", "write", "scan", "quick-scan"])
+def test_file_command_on_missing_target_returns_structured_error(command, tmp_path):
+    """A typo'd path must report the path, not a FileNotFoundError traceback."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text("# g", encoding="utf-8")
+
+    result = run_stamp([command, str(tmp_path / "nope.txt"), str(glossary)])
+
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert "ERROR" in result.stdout
+    assert "nope.txt" in result.stdout
+
+
+def test_check_help_does_not_advertise_folder_input():
+    """The help text must point folder input at `batch`, the command that supports it."""
+    result = run_stamp(["check", "--help"])
+
+    assert result.returncode == 0
+    assert "batch: folder" not in result.stdout

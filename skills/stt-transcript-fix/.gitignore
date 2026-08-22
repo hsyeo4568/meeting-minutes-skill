@@ -1,0 +1,3 @@
+# Regression fixture built from a real transcript (real names, real project paths).
+# Local-only, and excluded from public sync the same way in claude-config.
+fixtures/

@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 # Windows cp949 console: warnings/notes contain em-dash/Korean — force UTF-8 stdout
@@ -19,8 +20,61 @@ _encoding_warned = set()
 # Conservative: false-positives (extra pass) OK, false-negatives not.
 QUICK_SCAN_MIN_DENSITY = 0.0003
 
+# Filename-only privacy gate. These cues are evaluated before a transcript is
+# opened, hashed, locked, stamped, or backed up.
+SENSITIVE_FILENAME_CUES = (
+    "고객", "명단", "로스터", "연락처", "참여자", "인적",
+    "customer", "roster", "contact", "participant", "personal",
+)
+
+
+def is_sensitive_filename(path: Path) -> bool:
+    """Return true for names that must never have transcript-content I/O."""
+    name = unicodedata.normalize("NFC", Path(path).name).casefold()
+    return any(cue in name for cue in SENSITIVE_FILENAME_CUES)
+
+
 # Stale-lock threshold in seconds (10 minutes).
 _LOCK_STALE_SECONDS = 600
+
+
+# Speaker labels are source attribution, not correctable transcript content.
+# Timestamp-first exports put a whole header on one line; plain exports often
+# use ``이름: 발언`` and need only the prefix protected so the utterance can
+# still be corrected. Keep the matcher here so scan and apply cannot drift.
+TIMESTAMP_SPEAKER_HEADER_RE = re.compile(r'^\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s')
+PLAIN_SPEAKER_PREFIX_RE = re.compile(
+    r'^\s*(?:\[[^\]\n]{1,32}\]\s*)?'
+    r'(?:[가-힣]{2,4}|[A-Za-z][A-Za-z0-9_.-]{1,31})'
+    r'(?:\s*\([^\)\n]{1,30}\))?\s*:\s*'
+)
+
+
+def speaker_header_prefix_len(content: str) -> int:
+    """Return the immutable speaker-label prefix length, or 0 when absent."""
+    if TIMESTAMP_SPEAKER_HEADER_RE.match(content):
+        return len(content)  # timestamp-first line is an attribution-only header
+    match = PLAIN_SPEAKER_PREFIX_RE.match(content)
+    return match.end() if match else 0
+
+
+def mask_speaker_headers(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Mask every recognized attribution prefix without hiding plain-line speech."""
+    salt = ""
+    while f"__SPK{salt}" in text:
+        salt += "X"
+    lines = text.splitlines(keepends=True)
+    spans = []
+    for i, line in enumerate(lines):
+        content = line.rstrip("\r\n")
+        prefix_len = speaker_header_prefix_len(content)
+        if not prefix_len:
+            continue
+        ph = f"__SPK{salt}{i:08d}__"
+        prefix = content[:prefix_len]
+        spans.append((ph, prefix))
+        lines[i] = ph + content[prefix_len:] + line[len(content):]
+    return "".join(lines), spans
 
 
 # Plausible non-ASCII blocks for a real-world transcript: Hangul (syllables,
@@ -227,11 +281,13 @@ def mask_comments(text: str):
                     # cannot be corrected (codex review 2026-07-12 #5).
                     j = _line_end(text, j)
                     print(f"WARNING: (* marker exceeds 200 chars — cut at position {j}; line frozen (fail-closed)")
+                    MASK_VIOLATIONS.append(("overlong", i))
                     break
                 if depth > 0 and (text[j:j+2] == "\n\n" or text[j:j+4] == "\r\n\r\n"):
                     # CRLF variant included — Windows transcripts are the norm;
                     # checking only "\n\n" let the span swallow the next paragraph.
                     print(f"WARNING: (* marker imbalanced — cut at blank line (position {j}); line frozen (fail-closed)")
+                    MASK_VIOLATIONS.append(("imbalanced", i))
                     break
             ph = f"__CMT{salt}{i:08d}__"
             spans.append((ph, text[i:j]))

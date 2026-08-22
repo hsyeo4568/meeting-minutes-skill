@@ -14,6 +14,7 @@ JSON: {"replacements": [["old","new",count],...], "markers": [[line,"txt"],...],
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -34,7 +35,7 @@ CONTEXTUAL = []
 # header. Used BOTH to skip marker insertion on headers and to mask header
 # lines against replacements (SKILL Tier-C: speaker labels are immutable —
 # a glossary name rule must never rewrite who spoke; codex v2 #1).
-SPEAKER_HEADER_RE = re.compile(r'^\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s')
+SPEAKER_HEADER_RE = U.TIMESTAMP_SPEAKER_HEADER_RE
 
 # Marker cap per SKILL.md auto-marking contract (enforced here, not just prose).
 def marker_cap(line_count: int) -> int:
@@ -136,18 +137,7 @@ def mask_speaker_headers(text: str) -> tuple[str, list]:
     keeps the verify gate honest: expected counts must exclude header hits,
     otherwise COUNT MISMATCH halts the run (fail loud, agent recounts body-only).
     """
-    salt = ""
-    while f"__SPK{salt}" in text:
-        salt += "X"
-    lines = text.splitlines(keepends=True)
-    spans = []
-    for i, line in enumerate(lines):
-        content = line.rstrip("\r\n")
-        if SPEAKER_HEADER_RE.match(content):
-            ph = f"__SPK{salt}{i:08d}__"
-            spans.append((ph, content))
-            lines[i] = ph + line[len(content):]
-    return "".join(lines), spans
+    return U.mask_speaker_headers(text)
 
 
 def _find_count_mismatches(masked: str, reps: list, ctx: list) -> list[tuple]:
@@ -324,12 +314,26 @@ def write_atomic(
         raise
 
 
+def write_stamp_receipt(target_path: Path, file_sha256: str) -> None:
+    """Atomically record the exact bytes that the next ``fixstamp write`` may stamp."""
+    receipt = target_path.with_name(target_path.name + ".fixstamp.pending")
+    tmp = receipt.with_name(receipt.name + f".tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps({"file_sha256": file_sha256}), encoding="utf-8")
+        os.replace(tmp, receipt)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def main() -> int:
     args = parse_args()
 
     target_path = Path(args.transcript)
     if not target_path.exists():
         print(f"ERROR: file not found: {target_path}")
+        sys.exit(1)
+    if U.is_sensitive_filename(target_path):
+        print(f"HALT: sensitive-name file — refusing read, backup, lock, or correction: {target_path.name}")
         sys.exit(1)
 
     # Load correction data (before any file read — no lock needed yet)
@@ -420,10 +424,14 @@ def main() -> int:
         original_lines = original.splitlines()
         le = U.detect_line_ending(original)
 
-        # Marker cap (SKILL auto-marking contract — was prose-only, codex v2 #27)
+        # Marker cap includes user/previous-run markers already present in the
+        # source. Counting only this run's requested list let a rerun double
+        # annotation density while still reporting success (S5).
+        existing_marker_count = len(U.mask_comments(original)[1])
         cap = marker_cap(len(original_lines))
-        if len(markers_list) > cap and not args.force:
-            print(f"HALT: {len(markers_list)} markers > cap {cap} "
+        requested_marker_count = len(markers_list)
+        if existing_marker_count + requested_marker_count > cap and not args.force:
+            print(f"HALT: {existing_marker_count}+{requested_marker_count} markers > cap {cap} "
                   f"(max(15, lines//16) for {len(original_lines)} lines) — trim or --force")
             sys.exit(1)
         # Out-of-range markers: fail loud pre-apply (silently ignoring them made
@@ -509,6 +517,8 @@ def main() -> int:
                 write_atomic(target_path, changed, enc, bak_path, reps, ctx,
                              markers_list, src_sha=src_sha,
                              markers_applied=marker_stats["applied"])
+                write_stamp_receipt(
+                    target_path, hashlib.sha256(target_path.read_bytes()).hexdigest())
             except SourceChangedError as e:
                 print(f"ERROR: {e}")
                 sys.exit(1)

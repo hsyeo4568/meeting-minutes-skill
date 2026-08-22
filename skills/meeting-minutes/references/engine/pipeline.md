@@ -83,11 +83,37 @@ Runs after the manifest, before drafting. Goal: the deck/sheet's **meaning** ent
 - **Idempotency (re-run safety):** before appending, grep the topic's `## 타임라인` for this meeting's date + minutes link — if the line already exists, skip (append-only without this check duplicates evidence on every retry/re-run). One meeting = at most one timeline line per topic.
 - **Verify placement, not just presence.** "Appended" is not "appended in the right place": if the chronological heading is missed the line lands at end of file, after the hub sections, and nothing complains — the freshness scanner only checks that the minutes stem appears *somewhere* in the body. Observed 2026-07-29 on two topic notes. After writing, read the file back and confirm the new line sits under the chronological heading (`## 타임라인`, or whatever that note calls it) and in date order among its neighbours. Never leave a bare `관련: [[minutes]]` line after the block — the timeline entry already carries that link.
 
-## 7. Knowledge-graph update (optional)
+## 7. Knowledge-graph update
 
-- **Optional add-on** — skip entirely if the tool is unavailable (not required for a valid run).
-- Record decisions and relationships (who decided/committed to what, when) via the ontology skill interface.
-  - **Use the skill interface only** — do not call libraries (pyoxigraph, etc.) directly.
+Governed by `config.ontology`. **`required: true` makes this a normal step of every run** — the
+meeting is not finished until the graph carries its decisions, and the closing summary says which
+node was written. `required: false` (or no `ontology` key) skips the phase entirely.
+
+- **Write the decisions, not the prose.** One node for the meeting + one per entry in the approved
+  MD's `decisions:` frontmatter. Labels are the decision text, not a summary of it — the MD is the
+  source, so a decision that is not in the frontmatter does not get a node. Attendees, agenda bodies
+  and Action Items stay out unless the profile says otherwise: a graph that mirrors the minutes is
+  just a second, staler copy of them.
+- **Subject IRIs come from `config.ontology.entity_namespace`**, predicates from `namespace`. The
+  profile owns the local-part convention (see profile conventions); the engine does not name entities.
+- **Emit a `.ttl` file first, never inline triples.** Write it to the scratch/temp dir (never the
+  skill dir — the manifests rule in phase 3 applies here too), then `validate` before `load`. A
+  parse error at validate costs nothing; a half-loaded batch is a hand-repair.
+- **Invocation, in order** — `config.ontology.runner` is a command line, invoked as
+  `<runner> validate <file.ttl>` then `<runner> load <file.ttl>`, with `ONTOLOGY_DB` set to
+  `config.ontology.store` and `runner_env` exported. `runner: null` ⇒ use the host's ontology
+  *load-ttl capability* instead (resolve the literal tool name from your own tool list).
+  **Never import a graph library (pyoxigraph, rdflib) directly** — the runner and the capability
+  both encapsulate quirks that hand-rolled code re-discovers as data loss.
+- **Loaded is not written.** After `load`, query the meeting IRI back and confirm the triples are
+  there — same read-back discipline as every other artifact. Report the before/after triple count.
+- **Degradation.** Runner missing, store path absent, or the capability unavailable ⇒ save the
+  `.ttl` beside the work MD and report "graph load deferred — <reason>, TTL at <path>". That is a
+  degraded artifact, not a skipped one, and it belongs in the closing summary as such.
+- **Staleness check before you trust it.** The store may have no automated writer at all; a fresh
+  derived artifact elsewhere is not evidence that it is current. If a phase-3 context lookup wants
+  graph data, first confirm recency (most recent date in the store) and fall back to reading the
+  canonical minutes when there is a gap.
 
 ## 종료 요약 (필수)
 

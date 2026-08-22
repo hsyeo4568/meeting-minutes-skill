@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -90,9 +92,44 @@ def manifest_of(doc):
         (state_dir(doc) / "runs" / run_id / "manifest.json").read_text(encoding="utf-8"))
 
 
+def with_footer(doc, artifact, body):
+    idem = manifest_of(doc)["artifacts"][artifact]["idem_key"]
+    return body.rstrip("\n") + f"\n> mm:{idem}\n"
+
+
 # ---------------------------------------------------------------------------
 # approve — immutable snapshot
 # ---------------------------------------------------------------------------
+
+
+def test_concurrent_approve_creates_no_losing_run_payload(monkeypatch, doc, cfg):
+    """P0: losing an index CAS must not leave a second snapshot/manifest behind."""
+    original_write = S.write_index_cas
+
+    def delayed_write(*args, **kwargs):
+        time.sleep(0.15)  # force both callers to create their pre-CAS payloads
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(S, "write_index_cas", delayed_write)
+    start = threading.Barrier(2)
+    results = []
+
+    def worker(owner):
+        start.wait(timeout=3)
+        results.append(R.main([
+            "approve", "--doc", str(doc), "--config", str(cfg), "--category", "daily",
+            "--owner", owner,
+        ]))
+
+    workers = [threading.Thread(target=worker, args=(f"worker-{i}",)) for i in range(2)]
+    for worker_thread in workers:
+        worker_thread.start()
+    for worker_thread in workers:
+        worker_thread.join(timeout=5)
+    assert all(not worker_thread.is_alive() for worker_thread in workers)
+    assert sorted(results) == [0, 5]
+    assert len(list((state_dir(doc) / "runs").glob("r-*"))) == 1
+
 
 def test_approve_writes_snapshot_and_manifest(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
@@ -122,6 +159,23 @@ def test_approve_unknown_category_exits_2(capsys, doc, cfg):
     assert code == 2
 
 
+def test_approve_rejects_a_non_mapping_yaml_root(capsys, doc, tmp_path):
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("- not-a-mapping\n", encoding="utf-8")
+    code, out = run(capsys, "approve", "--doc", doc, "--config", malformed, "--category", "daily")
+    assert code == 2
+    assert "mapping" in out["detail"]
+
+
+def test_approve_rejects_invalid_declared_schema_v2(capsys, doc, cfg):
+    doc.write_text("---\nschema_version: 2\nrecordings: raw.txt\naction_items: 3\nartifacts: {}\n---\n# 회의\n",
+                   encoding="utf-8")
+    code, out = run(capsys, "approve", "--doc", doc, "--config", cfg, "--category", "daily")
+    assert code == 2
+    assert "recordings must be a list" in out["detail"]
+    assert not (doc.parent / ".mm").exists()
+
+
 # ---------------------------------------------------------------------------
 # gate — the choke point (I3)
 # ---------------------------------------------------------------------------
@@ -133,6 +187,27 @@ def test_gate_pass_returns_snapshot_path_and_create_action(capsys, doc, cfg):
     assert out["action"] == "create"
     assert Path(out["snapshot_path"]).read_text(encoding="utf-8") == DOC
     assert len(out["idem_key"]) == 16
+    assert out["footer"] == f"> mm:{out['idem_key']}"
+
+
+def test_gate_mirrors_publishing_state_without_losing_runtime_metadata(capsys, doc, cfg):
+    """A successful gate moves the run to publishing in both authoritative state and mirror."""
+    lease = approve(capsys, doc, cfg)
+    code, _ = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    assert code == 0
+    assert manifest_of(doc)["status"] == "publishing"
+    assert "mm_state: publishing" in doc.read_text(encoding="utf-8")
+
+
+def test_gate_rejects_a_second_open_create_gate(capsys, doc, cfg):
+    """M1: one artifact may have only one outstanding create authorization."""
+    lease = approve(capsys, doc, cfg)
+    first_code, first = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    second_code, second = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    assert first_code == 0 and first["gate_token"]
+    assert second_code == 6
+    assert "open gate" in second["detail"]
+    assert manifest_of(doc)["artifacts"]["canvas"]["gate_token"] == first["gate_token"]
 
 
 def test_approve_refuses_a_doc_inside_the_canonical_store(capsys, tmp_path):
@@ -199,7 +274,8 @@ def _record(capsys, doc, cfg, lease, artifact="canvas", body=None, ext_id="F09")
     rendered = doc.parent / f"rendered_{artifact}.md"
     # write_bytes, not write_text: on Windows text mode rewrites "\n" as "\r\n",
     # so a CRLF fixture would land as "\r\r\n" and fake a content change.
-    rendered.write_bytes((body if body is not None else DOC + "\n> mm:abc\n").encode("utf-8"))
+    footer = f"> mm:{manifest_of(doc)['artifacts'][artifact]['idem_key']}\n"
+    rendered.write_bytes((body if body is not None else DOC + "\n" + footer).encode("utf-8"))
     return run(capsys, "record", "--doc", doc, "--lease", lease, "--artifact", artifact,
                "--id", ext_id, "--body-file", rendered)
 
@@ -213,6 +289,27 @@ def test_record_stores_rendered_hash_and_id(capsys, doc, cfg):
     assert art["status"] == "created"
     assert art["external_id"] == "F09"
     assert art["rendered_sha256"] and art["attempts"] == 1
+
+
+def test_record_rejects_a_body_without_its_exact_idempotency_footer(capsys, doc, cfg):
+    """P0: the supplied body must carry the current gate's discoverable footer."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    code, out = _record(capsys, doc, cfg, lease, body=DOC)
+    assert code == 2
+    assert "footer" in out["detail"]
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["status"] == "pending" and art["external_id"] is None
+
+
+def test_record_mirrors_external_artifact_id_without_changing_approval_hash(capsys, doc, cfg):
+    """Canvas IDs are runtime metadata, not a post-verify canonical-body edit."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease, ext_id="F09")
+    mirrored = doc.read_text(encoding="utf-8")
+    assert "mm_artifacts:" in mirrored and "canvas: F09" in mirrored
+    assert S.source_hash(mirrored) == S.source_hash(DOC)
 
 
 def test_record_after_edit_during_creation_exits_3_and_does_not_mark_created(capsys, doc, cfg):
@@ -254,7 +351,18 @@ def _verify(capsys, doc, lease, artifact="canvas", body=None):
     back = doc.parent / f"readback_{artifact}.md"
     # write_bytes, not write_text: Windows text mode rewrites "\n" as "\r\n", so a
     # CRLF fixture would land on disk as "\r\r\n" and fake a content change.
-    back.write_bytes((body if body is not None else DOC + "\n> mm:abc\n").encode("utf-8"))
+    footer = f"> mm:{manifest_of(doc)['artifacts'][artifact]['idem_key']}\n"
+    back.write_bytes((body if body is not None else DOC + "\n" + footer).encode("utf-8"))
+    if artifact in R.EXTERNAL_RECEIPT_REQUIRED:
+        receipt = doc.parent / f"receipt_{artifact}.json"
+        receipt.write_text(json.dumps({
+            "schema": "mm-connector-receipt/1", "artifact": artifact,
+            "external_id": manifest_of(doc)["artifacts"][artifact]["external_id"],
+            "fetched_at": "2026-08-22T00:00:00+00:00",
+            "body": back.read_text(encoding="utf-8"),
+        }, ensure_ascii=False), encoding="utf-8")
+        return run(capsys, "verify", "--doc", doc, "--lease", lease,
+                   "--artifact", artifact, "--connector-receipt", receipt)
     return run(capsys, "verify", "--doc", doc, "--lease", lease,
                "--artifact", artifact, "--readback-file", back)
 
@@ -279,27 +387,59 @@ def test_verify_mismatch_exits_4_and_leaves_artifact_created(capsys, doc, cfg):
     assert any(e["event"] == "readback_mismatch" for e in events)
 
 
+def test_verify_missing_readback_file_returns_structured_failure_and_logs(capsys, doc, cfg):
+    """M3: a local readback I/O error is an auditable protocol failure, not a traceback."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "vault")
+    _record(capsys, doc, cfg, lease, artifact="vault", ext_id="v1")
+    missing = doc.parent / "not-present.md"
+    code, out = run(capsys, "verify", "--doc", doc, "--lease", lease,
+                    "--artifact", "vault", "--readback-file", missing)
+    assert code == 4
+    assert out["error"] == "readback_input_error"
+    events = S.read_events(state_dir(doc) / "runs.jsonl")
+    assert any(e.get("root_cause_key") == "vault.readback_input_error" for e in events)
+
+
+def test_external_raw_readback_is_held_for_manual_confirmation(capsys, doc, cfg):
+    """P0: a local body copy is not evidence of a Canvas/Gmail remote read-back."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    copy = doc.parent / "copied_canvas.md"
+    copy.write_text(with_footer(doc, "canvas", DOC), encoding="utf-8")
+    code, out = run(capsys, "verify", "--doc", doc, "--lease", lease,
+                    "--artifact", "canvas", "--readback-file", copy)
+    assert code == 0
+    assert out["status"] == "manual_required"
+    close_code, close_out = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert close_code == 7
+    assert any("canvas" in blocker for blocker in close_out["blockers"])
+
+
 def test_semantic_channel_accepts_the_renderers_own_rewrite(capsys, doc, cfg):
     """Slack canvas rewrites `-` bullets to `*` and wraps dates in an embed
     (measured on a live canvas). Byte comparison there would fail every run."""
     lease = approve(capsys, doc, cfg)
     run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
-    _record(capsys, doc, cfg, lease,
-            body="# 회의\n- [ ] 확인 필요 항목\n- 2026-07-28 Beta 회의\n")
-    code, _ = _verify(capsys, doc, lease,
-                      body="# 회의\n\n* [ ] 확인 필요 항목\n\n"
-                           "* ![](slack_date:2026-07-28) Beta 회의\n")
+    _record(capsys, doc, cfg, lease, body=with_footer(
+        doc, "canvas", "# 회의\n- [ ] 확인 필요 항목\n- 2026-07-28 Beta 회의\n"))
+    code, _ = _verify(capsys, doc, lease, body=with_footer(
+        doc, "canvas", "# 회의\n\n* [ ] 확인 필요 항목\n\n"
+        "* ![](slack_date:2026-07-28) Beta 회의\n"))
     assert code == 0
     art = manifest_of(doc)["artifacts"]["canvas"]
     assert art["status"] == "readback_verified" and art["readback_mode"] == "semantic"
+    assert (state_dir(doc) / "runs" / manifest_of(doc)["run_id"] / "readback" /
+            "canvas.receipt.json").exists()
 
 
 def test_semantic_channel_still_catches_truncation(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
     run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
-    _record(capsys, doc, cfg, lease,
-            body="# 회의\n- 첫 항목\n- 잘려나갈 항목\n")
-    code, out = _verify(capsys, doc, lease, body="# 회의\n\n* 첫 항목\n")
+    _record(capsys, doc, cfg, lease, body=with_footer(
+        doc, "canvas", "# 회의\n- 첫 항목\n- 잘려나갈 항목\n"))
+    code, out = _verify(capsys, doc, lease, body=with_footer(doc, "canvas", "# 회의\n\n* 첫 항목\n"))
     assert code == 4
     assert out["missing_lines"] == ["잘려나갈 항목"]
     assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "created"
@@ -309,8 +449,10 @@ def test_exact_channel_is_unchanged_by_the_semantic_option(capsys, doc, cfg):
     """vault declares no readback mode -> byte comparison stays in force."""
     lease = approve(capsys, doc, cfg)
     run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "vault")
-    _record(capsys, doc, cfg, lease, artifact="vault", body="- 항목\n", ext_id="v1")
-    code, _ = _verify(capsys, doc, lease, artifact="vault", body="* 항목\n")
+    _record(capsys, doc, cfg, lease, artifact="vault",
+            body=with_footer(doc, "vault", "- 항목\n"), ext_id="v1")
+    code, _ = _verify(capsys, doc, lease, artifact="vault",
+                      body=with_footer(doc, "vault", "* 항목\n"))
     assert code == 4, "exact channels must not absorb a bullet rewrite"
 
 
@@ -318,7 +460,8 @@ def test_verify_ignores_crlf_only_difference(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
     run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
     _record(capsys, doc, cfg, lease)
-    code, _ = _verify(capsys, doc, lease, body=(DOC + "\n> mm:abc\n").replace("\n", "\r\n"))
+    code, _ = _verify(capsys, doc, lease,
+                      body=with_footer(doc, "canvas", DOC).replace("\n", "\r\n"))
     assert code == 0
 
 
@@ -341,6 +484,17 @@ def test_close_exits_7_while_an_artifact_is_unverified(capsys, doc, cfg):
     assert any("gmail" in b for b in out["blockers"])
 
 
+def test_required_ontology_blocks_close_until_ttl_or_graph_readback(capsys, doc, cfg):
+    """M2: config-level required ontology must be a real completion blocker."""
+    with cfg.open("a", encoding="utf-8") as handle:
+        handle.write("ontology: {required: true}\n")
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease, artifacts=("vault", "canvas", "gmail"))
+    code, out = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert code == 7
+    assert any("ontology" in blocker for blocker in out["blockers"])
+
+
 def test_close_exits_7_on_open_blocking_manual_item(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
     _full_publish(capsys, doc, cfg, lease)
@@ -359,6 +513,30 @@ def test_close_completes_and_releases_the_lease(capsys, doc, cfg):
     assert next(iter(idx["docs"].values()))["lock"] is None
 
 
+def test_close_preserves_mirrored_external_artifact_ids(capsys, doc, cfg):
+    """Closing updates state only; it must retain IDs required for later audit/recovery."""
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease)
+    code, _ = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert code == 0
+    mirrored = doc.read_text(encoding="utf-8")
+    assert "mm_state: complete" in mirrored
+    assert "mm_artifacts:" in mirrored
+    assert "canvas: id-canvas" in mirrored
+    assert "vault: id-vault" in mirrored
+    assert "gmail: id-gmail" in mirrored
+
+
+def test_close_rejects_source_edits_after_artifact_verification(capsys, doc, cfg):
+    """P0: close must not convert artifacts derived from stale source into complete."""
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease)
+    doc.write_text(doc.read_text(encoding="utf-8").replace("이슈 1", "이슈 2"), encoding="utf-8")
+    code, _ = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert code == 3
+    assert manifest_of(doc)["status"] == "superseded"
+
+
 def test_manual_done_unblocks_close(capsys, doc, cfg):
     lease = approve(capsys, doc, cfg)
     _full_publish(capsys, doc, cfg, lease)
@@ -366,6 +544,15 @@ def test_manual_done_unblocks_close(capsys, doc, cfg):
     run(capsys, "manual", "--doc", doc, "--lease", lease, "--done", "m1")
     code, _ = run(capsys, "close", "--doc", doc, "--lease", lease)
     assert code == 0
+
+
+def test_abort_mirrors_terminal_state(capsys, doc, cfg):
+    """An aborted run must not leave the human-readable mirror at approved."""
+    lease = approve(capsys, doc, cfg)
+    code, _ = run(capsys, "abort", "--doc", doc, "--lease", lease, "--reason", "operator cancelled")
+    assert code == 0
+    assert manifest_of(doc)["status"] == "aborted"
+    assert "mm_state: aborted" in doc.read_text(encoding="utf-8")
 
 
 def test_manual_waive_is_logged_as_promotable(capsys, doc, cfg):
@@ -474,6 +661,36 @@ def test_audit_failure_revokes_verified_artifact_and_recovery_is_readback_only(c
     assert code == 0
     art = manifest_of(doc)["artifacts"]["canvas"]
     assert art["status"] == "readback_verified" and art["attempts"] == 1
+
+
+def test_post_close_audit_failure_reopens_with_a_recovery_lease(capsys, doc, cfg):
+    """M4: a post-close audit must reopen, lease, re-read, and re-close the run."""
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease)
+    close_code, _ = run(capsys, "close", "--doc", doc, "--lease", lease)
+    assert close_code == 0
+
+    fail_code, fail_out = run(
+        capsys, "fail", "--doc", doc, "--config", cfg, "--artifact", "vault",
+        "--class", "contract", "--key", "vault.audit_invalidated",
+        "--impact", "manual_recovery", "--detail", "post-close audit",
+    )
+    assert fail_code == 0
+    recovery_lease = fail_out["recovery_lease"]
+    manifest = manifest_of(doc)
+    assert manifest["status"] == "reopened"
+    assert manifest["artifacts"]["vault"]["status"] == "failed"
+    assert "mm_state: reopened" in doc.read_text(encoding="utf-8")
+
+    gate_code, gate_out = run(
+        capsys, "gate", "--doc", doc, "--lease", recovery_lease, "--artifact", "vault",
+    )
+    assert gate_code == 0 and gate_out["action"] == "readback"
+    verify_code, _ = _verify(capsys, doc, recovery_lease, artifact="vault")
+    assert verify_code == 0
+    close_code, _ = run(capsys, "close", "--doc", doc, "--lease", recovery_lease)
+    assert close_code == 0
+    assert manifest_of(doc)["status"] == "complete"
 
 
 def test_record_rejects_an_existing_external_id_even_if_called_after_readback_gate(capsys, doc, cfg):

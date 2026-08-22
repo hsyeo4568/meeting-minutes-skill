@@ -41,9 +41,13 @@ mm_run approve --doc <work_md> --config config.yaml --category <cat> [--preappro
          action=readback -> do NOT create a second one; read the existing artifact
     mm_run record --doc <work_md> --lease <L> --artifact <A> --id <external-id> \
                   --body-file <exact body sent> [--url <permalink>]
+    # local artifacts (vault/share_md/ontology)
     mm_run verify --doc <work_md> --lease <L> --artifact <A> \
-                  --readback-file <exact bytes read back from the tool>
-      -- or, only when that channel cannot put its response on disk --
+                  --readback-file <exact local artifact bytes>
+    # Canvas/Gmail only: connector-owned receipt with {schema, artifact, external_id, fetched_at, body}
+    mm_run verify --doc <work_md> --lease <L> --artifact <A> \
+                  --connector-receipt <connector-receipt.json>
+      -- or, when a trustworthy receipt is unavailable --
     mm_run verify --doc <work_md> --lease <L> --artifact <A> \
                   --readback-unavailable "<why>"   # holds it open, never verifies
 
@@ -78,16 +82,14 @@ Out-of-band commands:
 1. **Never publish text you did not read from `gate`'s `snapshot_path`.** Not the draft in your
    context, not the file you re-read yourself. The snapshot is immutable; your context is not.
 2. **Created is not done.** Report an artifact as complete only after `verify` returns 0.
-   **`--readback-file` must hold the bytes the tool gave back** — fetch the artifact (`list_drafts`,
-   `read_canvas`, re-read the file) and feed *that*. Deriving the read-back from the body you sent
-   makes `verify` compare the sent text with a copy of itself: it passes every time and proves
-   nothing. Measured 2026-07-29 — two gmail `verify`s passed on a reconstruction of the sent body,
-   so the gate gave no delivery assurance at all. If a channel's response cannot be written to disk
-   mechanically, **run `verify --readback-unavailable "<why>"`** — the artifact stops at
-   `manual_required`, a blocking manual item is opened, and `close` stays shut until a human
-   confirms it by eye; a later genuine read-back still clears it. Say so in the closing summary too.
-   A named gap beats a green light that means nothing. **Mail-draft channels are the usual case:** if the draft API returns the body only as an inline tool response with no on-disk artifact, that is not a mechanical read-back — reading it and then re-emitting the sent bytes proves nothing. Inspect the response, then run `verify --readback-unavailable` and let a human confirm. (Prose alone lost twice — gmail 2026-07-29,
-   canvas 2026-08-07 — which is why the escape hatch is now a command, not an instruction.)
+   For local artifacts, **`--readback-file` must hold the bytes read from the canonical local
+   artifact.** Canvas and Gmail never accept an arbitrary local body file as delivery evidence:
+   pass a connector-owned `--connector-receipt` whose artifact and external ID match `record` and
+   whose body was fetched remotely. The runner copies that receipt into its run state for audit.
+   A sent-body reconstruction is not a receipt; it becomes `manual_required` and blocks `close`.
+   If a trustworthy connector receipt cannot be produced, run
+   `verify --readback-unavailable "<why>"` instead. A named gap beats a green light that means
+   nothing; say so in the closing summary too.
 3. **Never retry by re-creating.** After any tool error, log it with `fail`, then run `gate`
    again — it returns `action: readback` when an id was already recorded.
 4. **A blocking exit is a stop.** Do not run later phases (canonical save, index, topic sync,
