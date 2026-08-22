@@ -13,6 +13,7 @@ Sidecar: <transcript.txt>.fixstamp (JSON w/ skill_version).
 Lock: <transcript.txt>.lock (stale-lock auto-clean after 10min).
 """
 import argparse
+import ast
 import hashlib
 import json
 import re
@@ -32,6 +33,46 @@ from _utils import QUICK_SCAN_MIN_DENSITY
 # manifest schema/numeric guards, directional boundary, marker cap enforcement,
 # migrate removal.
 SKILL_VERSION = "2.4"
+
+# The functions below define the correction/safety behavior that a stamp
+# version attests to. The regression test hashes their normalized AST, so a
+# semantic edit fails until its hash is consciously pinned under a new version.
+RULE_SURFACE_VERSION = "2.4"
+RULE_SURFACE_FUNCTIONS = {
+    "_utils.py": (
+        "is_sensitive_filename", "speaker_header_prefix_len", "mask_speaker_headers",
+        "detect_encoding", "acquire_lock", "release_lock", "mask_comments",
+        "safe_replace", "count_variant",
+    ),
+    "fix_template.py": (
+        "validate_manifest", "verify_counts", "apply_replacements", "apply_markers",
+        "write_atomic", "write_stamp_receipt", "main",
+    ),
+    "fixstamp.py": (
+        "_skip_sensitive_target", "_decide", "check_file", "write_stamp",
+        "quick_scan", "scan_candidates", "scan", "batch_check", "main",
+    ),
+}
+RULE_SURFACE_FILES = tuple(RULE_SURFACE_FUNCTIONS)
+RULE_SURFACE_PINS = {
+    "2.4": "6a78aa2510b50c78d775f01c60e434fd77108d02fb3829fca2587d5f4b6fe251",
+}
+
+
+def rule_surface_sha256(root: Path | None = None) -> str:
+    """Hash the version-attested correction/safety functions, not file formatting."""
+    base = Path(root) if root is not None else Path(__file__).parent
+    digest = hashlib.sha256()
+    for filename, names in RULE_SURFACE_FUNCTIONS.items():
+        tree = ast.parse((base / filename).read_text(encoding="utf-8"))
+        functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+        for name in names:
+            if name not in functions:
+                raise RuntimeError(f"rule surface function missing: {filename}:{name}")
+            digest.update(f"{filename}:{name}\0".encode("utf-8"))
+            digest.update(ast.dump(functions[name], annotate_fields=True, include_attributes=False).encode("utf-8"))
+            digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _skip_sensitive_target(target: Path) -> bool:

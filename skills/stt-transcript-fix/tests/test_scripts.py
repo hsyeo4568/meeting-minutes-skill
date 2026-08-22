@@ -1411,3 +1411,29 @@ def test_check_help_does_not_advertise_folder_input():
 
     assert result.returncode == 0
     assert "batch: folder" not in result.stdout
+
+
+# =========================================================================
+# 14. Version-bound rule surface — semantic changes require a new stamp version
+# =========================================================================
+
+def test_rule_surface_hash_is_pinned_to_the_current_skill_version():
+    """F2: correction/safety logic cannot drift beneath an unchanged stamp version."""
+    assert FS.RULE_SURFACE_VERSION == FS.SKILL_VERSION
+    assert set(FS.RULE_SURFACE_PINS) == {FS.SKILL_VERSION}
+    assert FS.RULE_SURFACE_PINS[FS.SKILL_VERSION] == FS.rule_surface_sha256()
+
+
+def test_rule_surface_hash_changes_when_protected_logic_changes(tmp_path):
+    """The pin covers the selected correction and safety execution surface."""
+    copied_scripts = tmp_path / "scripts"
+    copied_scripts.mkdir()
+    for relative_path in FS.RULE_SURFACE_FILES:
+        shutil.copy2(SCRIPTS / relative_path, copied_scripts / relative_path)
+
+    mutated = copied_scripts / "_utils.py"
+    original = mutated.read_text(encoding="utf-8")
+    mutated.write_text(original.replace("return any(cue in name for cue in SENSITIVE_FILENAME_CUES)",
+                                       "return False"), encoding="utf-8")
+
+    assert FS.rule_surface_sha256(copied_scripts) != FS.rule_surface_sha256()
