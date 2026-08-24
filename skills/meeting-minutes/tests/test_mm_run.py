@@ -1320,3 +1320,62 @@ def test_refresh_with_a_foreign_lease_is_rejected(capsys, doc, cfg):
                   "--lease", "0" * 32, "--ttl-min", "90")
 
     assert code == 5, "a non-holder must not be able to extend someone else's lease"
+
+
+def test_refresh_honors_the_configured_lease_ttl_when_ttl_min_is_omitted(capsys, doc, tmp_path):
+    """approve's initial lease already carries 90 min from config. A refresh that
+    falls back to the hardcoded DEFAULT_TTL_MIN (30) would *reset* expires_at
+    to now+30 -- shorter than what is already there -- so this catches the
+    hardcoded fallback even though the lease starts out long-lived."""
+    cfg90 = tmp_path / "config-ttl90.yaml"
+    cfg90.write_text(
+        "categories:\n"
+        "  daily: {detail_md: true, share_md: false, canvas: true, gmail: true, vault: true}\n"
+        "channels:\n"
+        "  canvas: {editable: false, readback: semantic}\n"
+        "  gmail: {editable: true}\n"
+        "  vault: {editable: true}\n"
+        "runtime: {state_dir: .mm, lease_ttl_min: 90, retention_days: 90}\n",
+        encoding="utf-8",
+    )
+    lease = approve(capsys, doc, cfg90)
+
+    code, out = run(capsys, "refresh", "--doc", str(doc), "--config", str(cfg90),
+                    "--lease", lease)
+
+    assert code == 0
+    idx = _index_of(doc)
+    doc_id = next(iter(idx["docs"]))
+    lock = idx["docs"][doc_id]["lock"]
+    remaining = datetime.fromisoformat(lock["expires_at"]) - S.utcnow()
+    assert remaining > timedelta(minutes=60), (
+        "an omitted --ttl-min must fall back to the configured lease_ttl_min, "
+        "not the hardcoded default")
+
+
+def test_refresh_after_the_lease_expired_is_refused(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+
+    index_path = state_dir(doc) / "index.json"
+    idx = json.loads(index_path.read_text(encoding="utf-8"))
+    doc_id = next(iter(idx["docs"]))
+    expires_at = datetime.fromisoformat(idx["docs"][doc_id]["lock"]["expires_at"])
+    idx["docs"][doc_id]["lock"]["expires_at"] = S.iso(expires_at - timedelta(hours=2))
+    index_path.write_text(json.dumps(idx, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, _ = run(capsys, "refresh", "--doc", str(doc), "--config", str(cfg),
+                  "--lease", lease, "--ttl-min", "90")
+
+    assert code == 5, "an expired lease must not be silently refreshable"
+
+
+def test_refresh_after_abort_is_refused(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    code, _ = run(capsys, "abort", "--doc", str(doc), "--config", str(cfg),
+                  "--lease", lease, "--reason", "test abort")
+    assert code == 0
+
+    code, _ = run(capsys, "refresh", "--doc", str(doc), "--config", str(cfg),
+                  "--lease", lease, "--ttl-min", "90")
+
+    assert code == 5, "a refresh after abort must not crash or silently succeed"

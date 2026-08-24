@@ -1079,11 +1079,15 @@ def cmd_refresh(a) -> int:
     ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
     doc_id, run_id, _ = ws.load_run()
     require_lease(ws, doc_id, a.lease)
-    ttl = a.ttl_min if a.ttl_min is not None else DEFAULT_TTL_MIN
+    ttl = a.ttl_min if a.ttl_min is not None else runtime_opt(cfg, "lease_ttl_min", DEFAULT_TTL_MIN)
     index = ws.index()
-    S.write_index_cas(ws.index_path, S.refresh_lease(index, doc_id, ttl, S.utcnow()),
-                      index["version"])
-    expires_at = ws.index()["docs"][doc_id]["lock"]["expires_at"]
+    lock = (index.get("docs", {}).get(doc_id) or {}).get("lock")
+    if not lock or lock.get("lease") != a.lease:
+        raise S.LockHeld(f"{doc_id}: lease released or replaced before refresh could apply")
+    updated = S.write_index_cas(ws.index_path,
+                                S.refresh_lease(index, doc_id, ttl, S.utcnow()),
+                                index["version"])
+    expires_at = updated["docs"][doc_id]["lock"]["expires_at"]
     ws.log(doc_id=doc_id, run_id=run_id, event="lease_refreshed", impact="none",
            detail=f"ttl_min={ttl}")
     emit({"run_id": run_id, "lease": a.lease, "expires_at": expires_at},
