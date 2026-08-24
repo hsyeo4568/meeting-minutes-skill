@@ -24,26 +24,26 @@ def _run(tmp_path, *args):
     env = {**os.environ, "MM_ONTOLOGY_CLI": f'"{sys.executable}" "{fake}"'}
     proc = subprocess.run([sys.executable, "-X", "utf8", str(ADAPTER), *args],
                           capture_output=True, text=True, encoding="utf-8", env=env)
-    return proc.returncode, proc.stdout
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def test_validate_passes_the_ttl_path_through(tmp_path):
     ttl = tmp_path / "meeting.ttl"
-    code, out = _run(tmp_path, "validate", str(ttl))
+    code, out, _ = _run(tmp_path, "validate", str(ttl))
     assert code == 0
     assert json.loads(out)["argv"] == ["validate", str(ttl)]
 
 
 def test_load_passes_the_ttl_path_through(tmp_path):
     ttl = tmp_path / "meeting.ttl"
-    code, out = _run(tmp_path, "load", str(ttl))
+    code, out, _ = _run(tmp_path, "load", str(ttl))
     assert code == 0
     assert json.loads(out)["argv"] == ["load", str(ttl)]
 
 
 def test_query_translates_an_iri_into_sparql_and_keeps_the_count(tmp_path):
     iri = "https://v.example/meeting/2026-08-24"
-    code, out = _run(tmp_path, "query", iri)
+    code, out, _ = _run(tmp_path, "query", iri)
     assert code == 0
     payload = json.loads(out)
     assert payload["argv"][0] == "query"
@@ -54,12 +54,16 @@ def test_query_translates_an_iri_into_sparql_and_keeps_the_count(tmp_path):
 
 
 def test_an_unknown_subcommand_fails_loudly(tmp_path):
-    code, _ = _run(tmp_path, "delete-everything", "x")
-    assert code != 0, "the adapter must not forward subcommands mm_run never asks for"
+    code, out, err = _run(tmp_path, "delete-everything", "x")
+    assert code == 2, "the adapter must refuse with its own usage exit code"
+    assert "delete-everything" in err, "the refusal must name the rejected action"
+    assert out == "", "a refused action must not emit a JSON payload mm_run could read"
 
 
 def test_a_missing_cli_env_var_fails_loudly(tmp_path):
     env = {k: v for k, v in os.environ.items() if k != "MM_ONTOLOGY_CLI"}
     proc = subprocess.run([sys.executable, "-X", "utf8", str(ADAPTER), "validate", "x.ttl"],
                           capture_output=True, text=True, encoding="utf-8", env=env)
-    assert proc.returncode != 0, "an unset MM_ONTOLOGY_CLI must not be silently ignored"
+    assert proc.returncode == 2
+    assert "MM_ONTOLOGY_CLI" in proc.stderr, "the error must name the missing variable"
+    assert proc.stdout == ""
