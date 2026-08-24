@@ -76,6 +76,18 @@ python scripts/dry_run.py              # config·profile 검증 → PASS 출력 
 
 > 팀원 기본 경로 = Slack/qmd 없이 `.md` 산출물 수동 공유. ontology는 `required: false` (또는 `ontology` key 없음)일 때만 생략 가능하다. `required: true`에서 runner/capability가 없으면 TTL 후보를 보존하지만 `manual_required`로 `close=7`이다. hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1`만 deferred-load TTL 검증을 증명한다. `config.tools`에서 `off` 지정 가능
 
+- **ontology runner 연결**: vault에 Oxigraph CLI가 있으면 `ontology.runner`를 이 스킬 동봉 어댑터(`scripts/mm_ontology_runner.py`)로, `ontology.runner_env.MM_ONTOLOGY_CLI`를 그 CLI 호출 커맨드로 지정한다 — 이 둘을 채우면 phase 7이 사람 개입 없이 자동 완료된다.
+
+  ```yaml
+  ontology:
+    required: true
+    runner: "python -X utf8 <skill-root>/scripts/mm_ontology_runner.py"
+    runner_env:
+      MM_ONTOLOGY_CLI: "python -X utf8 <vault-root>/_vault/scripts/ontology/cli.py"
+  ```
+
+  runner를 비워두면(기본값 `null`) phase 7은 `turtle-parse/1`이 서명한 hash-bound `mm-ontology-validator-receipt/1`을 요구하는데, 이 저장소에는 그 receipt를 만드는 것이 없다 — 즉 TTL은 매번 `manual_required`로 남고 `close`는 종료코드 7을 반환하며, 사람이 `manual --done`으로 정리하기 전까지 회의마다 반복된다.
+
 ---
 
 ## 4. 검증 체크리스트 (첫 실행 전)
