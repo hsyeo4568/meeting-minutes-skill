@@ -56,7 +56,7 @@ HIGH_IMPACT = {"external_share_error", "data_loss", "manual_recovery"}
 
 # Bookkeeping the runner emits itself — never candidates for failure triage.
 PROTOCOL_EVENTS = {
-    "approve", "gate_pass", "artifact_created", "artifact_verified",
+    "approve", "gate_pass", "create_claimed", "artifact_created", "artifact_verified",
     "manual_added", "manual_done", "close", "abort", "gc",
 }
 
@@ -348,6 +348,8 @@ def new_manifest(doc_id: str, run_id: str, doc_path: str, category: str,
                 "rendered_sha256": None,
                 "readback_sha256": None,
                 "readback_mode": modes.get(key, "exact"),
+                "gate_token": None,
+                "create_intent": None,
                 "attempts": 0,
                 "waived": False,
                 "updated_at": iso(now),

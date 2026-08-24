@@ -16,7 +16,8 @@ At startup, each key in `config.tools` (slack_mcp / gmail_mcp / qmd / ontology) 
 | slack_mcp | Skip Canvas/shared posting → output Canvas body as `.md` file + "manual paste" instructions (Share routing) |
 | gmail_mcp | Skip Gmail draft creation → output subject + to/cc + body as `.md` (or `.eml`), user sends manually (Share routing) |
 | qmd | Skip embed (indexing), note "search indexing skipped" (Canonical save) |
-| ontology | Skip knowledge-graph update stage (phase 7, optional add-on) |
+| ontology (`required: false` (or no `ontology` key)) | Skip knowledge-graph update stage (phase 7, optional add-on) |
+| ontology runner/capability (`required: true`) | Preserve the `.ttl` candidate with reason, path, and provenance as `manual_required` (`close=7`). Only a hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` makes it a validated deferred-load artifact |
 | profile=null | Skip domain term/contact cross-validation → proceed with placeholder or user confirmation (Context-link) |
 | materials handler (configured but not installed) | Fall to the next entry in that ext's chain; if the chain is exhausted, extract with the built-in structured library (Materials comprehension floor). Never drop the material — say which handler ran in the closing summary |
 | no handler for an ext | Read the file directly if it is text-like; otherwise list it as `skipped_unsupported` in the closing summary (surfaced, never silent) |

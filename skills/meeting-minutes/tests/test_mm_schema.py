@@ -51,3 +51,8 @@ def test_v2_schema_rejects_scalar_recording_and_unstructured_actions():
     errors = MS.validate_text(invalid)
     assert "recordings must be a list" in errors
     assert "action_items must be a list" in errors
+
+
+def test_v2_schema_rejects_non_iso_due_string():
+    errors = MS.validate_text(VALID_V2.replace("due: 2026-08-21", "due: '2026/08/21'"))
+    assert "action_items[1].due must be an ISO calendar date (YYYY-MM-DD)" in errors

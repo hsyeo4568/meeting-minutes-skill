@@ -43,7 +43,7 @@ Profile-supplied (engine references them but does NOT hardcode values; profile f
 6. Canonical save — write the authoritative copy to the configured store (config.paths.vault — a notes vault / docs folder / wiki; org-dependent) with config.vault_frontmatter. Optional: index (qmd) if available.
 6.5. Topic sync — optional; only if config.paths.topics_moc is set: append meeting evidence lines to matching topic notes (append-only). Skip entirely if the key is absent.
 7. Knowledge-graph update — record decisions/relations according to `config.ontology`.
-   - When `config.ontology.required: true`, it is a normal completion artifact: validate/load through the configured runner when available; otherwise save a validated `.ttl` as a **degraded, deferred-load artifact** and report the reason and path. Never silently skip a required graph update.
+   - When `required: true`, it is a normal completion artifact. A configured runner must validate/load/query the meeting IRI. Without a runner/capability, preserve the `.ttl` as a deferred candidate with reason, path, and provenance, but mark it `manual_required` and keep `close=7` until a hash-bound authenticated `mm-ontology-validator-receipt/1` from a `turtle-parse/1` validator attests it. Only then is it a **degraded, deferred-load artifact**. Never silently skip a required graph update.
    - When `required: false` (or no `ontology` key), skip phase 7 as an optional add-on.
 
 ## Degradation principle (gate #2 — enforced by `scripts/verify_degradation.py`)
@@ -56,6 +56,7 @@ errors out. profile=null -> skip domain/contact cross-checks, proceed with place
 | slack_mcp | don't post; write canvas body to `.md` + "paste manually" note |
 | gmail_mcp | don't draft; write subject+to/cc+body to `.md` (or `.eml`) for manual send |
 | qmd | skip embed; print "indexing skipped" |
-| ontology | skip phase 7 |
+| ontology (`required: false` (or no `ontology` key)) | skip phase 7 |
+| ontology runner/capability unavailable (`required: true`) | preserve a deferred TTL candidate with reason/path/provenance as `manual_required` (`close=7`); only a hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` upgrades it to a validated degraded artifact |
 | materials handler | fall to the next entry in the chain; all absent → built-in structured extraction (phase 1.5 floor), never skip the material silently |
 | profile=null | skip cross-checks; use placeholders / ask user |

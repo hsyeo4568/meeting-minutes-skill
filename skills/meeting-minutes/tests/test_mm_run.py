@@ -7,7 +7,10 @@ mismatch · 5 lock held · 6 illegal transition · 7 completeness failed.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import sys
 import threading
 import time
@@ -20,6 +23,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 import mm_run as R  # noqa: E402
 import mm_state as S  # noqa: E402
+
+RECEIPT_SECRET = "test-authenticated-adapter-secret"
+ONTOLOGY_VALIDATOR_RECEIPT_SECRET = "test-ontology-validator-receipt-secret"
+os.environ.setdefault(R.CONNECTOR_RECEIPT_SECRET_ENV, RECEIPT_SECRET)
+os.environ.setdefault("MM_ONTOLOGY_VALIDATOR_RECEIPT_SECRET", ONTOLOGY_VALIDATOR_RECEIPT_SECRET)
 
 DOC = """---
 date: 2026-07-27
@@ -95,6 +103,69 @@ def manifest_of(doc):
 def with_footer(doc, artifact, body):
     idem = manifest_of(doc)["artifacts"][artifact]["idem_key"]
     return body.rstrip("\n") + f"\n> mm:{idem}\n"
+
+
+def authenticated_receipt(doc, artifact, body):
+    external_id = manifest_of(doc)["artifacts"][artifact]["external_id"]
+    now = S.iso(S.utcnow())
+    receipt = {
+        "schema": R.CONNECTOR_RECEIPT_SCHEMA,
+        "artifact": artifact,
+        "external_id": external_id,
+        "fetched_at": now,
+        "body": body,
+        "remote": {
+            "id": external_id,
+            "url": f"https://connector.test/{artifact}/{external_id}",
+            "retrieved_at": now,
+        },
+        "adapter": {
+            "name": "test-authenticated-adapter",
+            "auth": "hmac-sha256",
+            "key_id": "test-key-v1",
+            "signature": "",
+        },
+    }
+    receipt["adapter"]["signature"] = R.connector_receipt_signature(receipt, RECEIPT_SECRET)
+    return receipt
+
+
+def authenticated_ontology_validator_receipt(ttl_text, meeting_iri, triple_count=1):
+    """A test-only stand-in for a trusted parser capability receipt."""
+    receipt = {
+        "schema": "mm-ontology-validator-receipt/1",
+        "ttl_sha256": S.body_hash(ttl_text),
+        "meeting_iri": meeting_iri,
+        "triple_count": triple_count,
+        "validated_at": S.iso(S.utcnow()),
+        "validator": {
+            "name": "test-turtle-parser",
+            "capability": "turtle-parse/1",
+            "auth": "hmac-sha256",
+            "key_id": "test-validator-key-v1",
+            "signature": "",
+        },
+    }
+    signed = json.loads(json.dumps(receipt))
+    signed["validator"].pop("signature", None)
+    payload = json.dumps(signed, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    receipt["validator"]["signature"] = hmac.new(
+        ONTOLOGY_VALIDATOR_RECEIPT_SECRET.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return receipt
+
+
+def audit_evidence_file(doc, artifact, finding="remote read-back disproved"):
+    external_id = manifest_of(doc)["artifacts"][artifact]["external_id"]
+    evidence = doc.parent / f"audit-{artifact}.json"
+    evidence.write_text(json.dumps({
+        "schema": "mm-audit-evidence/1",
+        "artifact": artifact,
+        "external_id": external_id,
+        "finding": finding,
+        "observed_at": S.iso(S.utcnow()),
+    }, ensure_ascii=False), encoding="utf-8")
+    return evidence
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +281,41 @@ def test_gate_rejects_a_second_open_create_gate(capsys, doc, cfg):
     assert manifest_of(doc)["artifacts"]["canvas"]["gate_token"] == first["gate_token"]
 
 
+def test_concurrent_same_lease_gate_issues_only_one_create_token(monkeypatch, capsys, doc, cfg):
+    """P0: concurrent gate calls need a per-artifact transaction boundary."""
+    lease = approve(capsys, doc, cfg)
+    original_save = R.Workspace.save_manifest
+    write_lock = threading.Lock()
+
+    def delayed_save(self, manifest):
+        art = manifest.get("artifacts", {}).get("canvas", {})
+        if art.get("gate_token"):
+            time.sleep(0.12)
+        with write_lock:
+            return original_save(self, manifest)
+
+    monkeypatch.setattr(R.Workspace, "save_manifest", delayed_save)
+    start = threading.Barrier(2)
+    results = []
+
+    def worker():
+        start.wait(timeout=3)
+        results.append(R.main([
+            "gate", "--doc", str(doc), "--config", str(cfg), "--lease", lease,
+            "--artifact", "canvas",
+        ]))
+
+    workers = [threading.Thread(target=worker) for _ in range(2)]
+    for worker_thread in workers:
+        worker_thread.start()
+    for worker_thread in workers:
+        worker_thread.join(timeout=5)
+    assert all(not worker_thread.is_alive() for worker_thread in workers)
+    assert sorted(results) == [0, 5]
+    intent = manifest_of(doc)["artifacts"]["canvas"]["create_intent"]
+    assert intent["state"] == "open" and intent["token"]
+
+
 def test_approve_refuses_a_doc_inside_the_canonical_store(capsys, tmp_path):
     """I2 is a guard, not a promise: run state must never land in the vault.
 
@@ -270,14 +376,28 @@ def test_gate_rejects_artifact_outside_the_frozen_plan(capsys, doc, cfg):
 # record — second, independent hash check (I3)
 # ---------------------------------------------------------------------------
 
-def _record(capsys, doc, cfg, lease, artifact="canvas", body=None, ext_id="F09"):
+def _claim_create(capsys, doc, cfg, lease, artifact="canvas", gate_token=None):
+    token = gate_token if gate_token is not None else manifest_of(doc)["artifacts"][artifact].get("gate_token")
+    return run(capsys, "claim-create", "--doc", doc, "--config", cfg, "--lease", lease,
+               "--artifact", artifact, "--gate-token", token or "")
+
+
+def _record(capsys, doc, cfg, lease, artifact="canvas", body=None, ext_id="F09", gate_token=None,
+            claim_id=None):
     rendered = doc.parent / f"rendered_{artifact}.md"
     # write_bytes, not write_text: on Windows text mode rewrites "\n" as "\r\n",
     # so a CRLF fixture would land as "\r\r\n" and fake a content change.
     footer = f"> mm:{manifest_of(doc)['artifacts'][artifact]['idem_key']}\n"
     rendered.write_bytes((body if body is not None else DOC + "\n" + footer).encode("utf-8"))
+    token = gate_token if gate_token is not None else manifest_of(doc)["artifacts"][artifact].get("gate_token")
+    if claim_id is None:
+        claim_code, claim = _claim_create(capsys, doc, cfg, lease, artifact, token)
+        if claim_code:
+            return claim_code, claim
+        claim_id = claim["claim_id"]
     return run(capsys, "record", "--doc", doc, "--lease", lease, "--artifact", artifact,
-               "--id", ext_id, "--body-file", rendered)
+               "--id", ext_id, "--body-file", rendered, "--gate-token", token or "",
+               "--claim-id", claim_id)
 
 
 def test_record_stores_rendered_hash_and_id(capsys, doc, cfg):
@@ -289,6 +409,147 @@ def test_record_stores_rendered_hash_and_id(capsys, doc, cfg):
     assert art["status"] == "created"
     assert art["external_id"] == "F09"
     assert art["rendered_sha256"] and art["attempts"] == 1
+
+
+def test_claim_create_consumes_a_gate_token_once_before_external_create(capsys, doc, cfg):
+    """P0: a bearer token must become one durable pre-create claim, not two creates."""
+    lease = approve(capsys, doc, cfg)
+    _, gate = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+
+    first_code, first = run(capsys, "claim-create", "--doc", doc, "--config", cfg,
+                            "--lease", lease, "--artifact", "canvas",
+                            "--gate-token", gate["gate_token"])
+    second_code, _ = run(capsys, "claim-create", "--doc", doc, "--config", cfg,
+                         "--lease", lease, "--artifact", "canvas",
+                         "--gate-token", gate["gate_token"])
+
+    assert first_code == 0
+    assert first["claim_id"]
+    assert first["provider_idempotency_key"] == gate["idem_key"]
+    assert second_code == 6
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["gate_token"] is None
+    assert art["create_intent"]["state"] == "claimed"
+    assert art["create_intent"]["claim_id"] == first["claim_id"]
+
+
+def test_concurrent_claim_create_issues_one_provider_authorization(monkeypatch, capsys, doc, cfg):
+    """P0: lock contention must deny the second pre-create claimant."""
+    lease = approve(capsys, doc, cfg)
+    _, gate = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    original_save = R.Workspace.save_manifest
+    start = threading.Barrier(2)
+    results = []
+
+    def delayed_save(self, manifest):
+        if manifest["artifacts"]["canvas"].get("create_intent", {}).get("state") == "claimed":
+            time.sleep(0.12)
+        return original_save(self, manifest)
+
+    monkeypatch.setattr(R.Workspace, "save_manifest", delayed_save)
+
+    def worker():
+        start.wait(timeout=3)
+        results.append(R.main([
+            "claim-create", "--doc", str(doc), "--config", str(cfg), "--lease", lease,
+            "--artifact", "canvas", "--gate-token", gate["gate_token"],
+        ]))
+
+    workers = [threading.Thread(target=worker) for _ in range(2)]
+    for worker_thread in workers:
+        worker_thread.start()
+    for worker_thread in workers:
+        worker_thread.join(timeout=5)
+    assert all(not worker_thread.is_alive() for worker_thread in workers)
+    assert sorted(results) == [0, 5]
+    assert manifest_of(doc)["artifacts"]["canvas"]["create_intent"]["state"] == "claimed"
+
+
+def test_gate_after_claim_crash_requires_manual_recovery_not_second_create(capsys, doc, cfg):
+    """P0: a claimed-but-unrecorded provider create is never retried blindly."""
+    lease = approve(capsys, doc, cfg)
+    _, gate = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    claim_code, claim = _claim_create(capsys, doc, cfg, lease, gate_token=gate["gate_token"])
+    assert claim_code == 0
+
+    code, recovery = run(capsys, "gate", "--doc", doc, "--config", cfg,
+                         "--lease", lease, "--artifact", "canvas")
+
+    assert code == 0
+    assert recovery["action"] == "manual_recovery"
+    assert recovery["gate_token"] is None
+    assert recovery["claim_id"] == claim["claim_id"]
+    assert recovery["provider_idempotency_key"] == gate["idem_key"]
+
+
+def test_concurrent_record_with_one_claim_persists_exactly_one_external_id(monkeypatch, capsys, doc, cfg):
+    """P0: even duplicate provider responses cannot overwrite the first record."""
+    lease = approve(capsys, doc, cfg)
+    _, gate = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _, claim = _claim_create(capsys, doc, cfg, lease, gate_token=gate["gate_token"])
+    body = doc.parent / "canvas.md"
+    body.write_text(with_footer(doc, "canvas", DOC), encoding="utf-8")
+    original_save = R.Workspace.save_manifest
+    start = threading.Barrier(2)
+    results = []
+
+    def delayed_save(self, manifest):
+        if manifest["artifacts"]["canvas"].get("external_id"):
+            time.sleep(0.12)
+        return original_save(self, manifest)
+
+    monkeypatch.setattr(R.Workspace, "save_manifest", delayed_save)
+
+    def worker(external_id):
+        start.wait(timeout=3)
+        results.append(R.main([
+            "record", "--doc", str(doc), "--config", str(cfg), "--lease", lease,
+            "--artifact", "canvas", "--id", external_id, "--body-file", str(body),
+            "--gate-token", gate["gate_token"], "--claim-id", claim["claim_id"],
+        ]))
+
+    workers = [threading.Thread(target=worker, args=(external_id,))
+               for external_id in ("canvas-race-A", "canvas-race-B")]
+    for worker_thread in workers:
+        worker_thread.start()
+    for worker_thread in workers:
+        worker_thread.join(timeout=5)
+    assert all(not worker_thread.is_alive() for worker_thread in workers)
+    assert sorted(results) in ([0, 5], [0, 6])
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["external_id"] in {"canvas-race-A", "canvas-race-B"}
+    assert art["attempts"] == 1 and art["create_intent"]["state"] == "recorded"
+
+
+def test_record_rejects_an_unclaimed_gate_before_provider_side_effect(capsys, doc, cfg):
+    """P0: record cannot substitute for the atomic pre-create claim operation."""
+    lease = approve(capsys, doc, cfg)
+    _, gate = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    body = doc.parent / "canvas.md"
+    body.write_text(with_footer(doc, "canvas", DOC), encoding="utf-8")
+
+    code, _ = run(capsys, "record", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+                  "--id", "F09", "--body-file", body, "--gate-token", gate["gate_token"],
+                  "--claim-id", "not-a-claim")
+
+    assert code == 6
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "pending"
+
+
+def test_record_rejects_a_gate_token_from_another_create_intent(capsys, doc, cfg):
+    """P0: record must be bound to the exact durable authorization it consumes."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    body = doc.parent / "canvas.md"
+    body.write_text(with_footer(doc, "canvas", DOC), encoding="utf-8")
+
+    _, claim = _claim_create(capsys, doc, cfg, lease, gate_token=manifest_of(doc)["artifacts"]["canvas"]["gate_token"])
+    code, _ = run(capsys, "record", "--doc", doc, "--lease", lease, "--artifact", "canvas",
+                  "--id", "F09", "--body-file", body, "--gate-token", "wrong-token",
+                  "--claim-id", claim["claim_id"])
+
+    assert code == 6
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "pending"
 
 
 def test_record_rejects_a_body_without_its_exact_idempotency_footer(capsys, doc, cfg):
@@ -355,12 +616,8 @@ def _verify(capsys, doc, lease, artifact="canvas", body=None):
     back.write_bytes((body if body is not None else DOC + "\n" + footer).encode("utf-8"))
     if artifact in R.EXTERNAL_RECEIPT_REQUIRED:
         receipt = doc.parent / f"receipt_{artifact}.json"
-        receipt.write_text(json.dumps({
-            "schema": "mm-connector-receipt/1", "artifact": artifact,
-            "external_id": manifest_of(doc)["artifacts"][artifact]["external_id"],
-            "fetched_at": "2026-08-22T00:00:00+00:00",
-            "body": back.read_text(encoding="utf-8"),
-        }, ensure_ascii=False), encoding="utf-8")
+        receipt.write_text(json.dumps(authenticated_receipt(doc, artifact, back.read_text(encoding="utf-8")),
+                                      ensure_ascii=False), encoding="utf-8")
         return run(capsys, "verify", "--doc", doc, "--lease", lease,
                    "--artifact", artifact, "--connector-receipt", receipt)
     return run(capsys, "verify", "--doc", doc, "--lease", lease,
@@ -415,6 +672,25 @@ def test_external_raw_readback_is_held_for_manual_confirmation(capsys, doc, cfg)
     close_code, close_out = run(capsys, "close", "--doc", doc, "--lease", lease)
     assert close_code == 7
     assert any("canvas" in blocker for blocker in close_out["blockers"])
+
+
+def test_unsigned_connector_receipt_is_manual_required_not_readback_verified(capsys, doc, cfg):
+    """P0: schema-looking local JSON is not an authenticated remote retrieval."""
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    receipt = doc.parent / "forged-canvas.json"
+    receipt.write_text(json.dumps({
+        "schema": "mm-connector-receipt/1", "artifact": "canvas", "external_id": "F09",
+        "fetched_at": "2026-08-24T00:00:00+00:00", "body": with_footer(doc, "canvas", DOC),
+    }), encoding="utf-8")
+
+    code, out = run(capsys, "verify", "--doc", doc, "--lease", lease,
+                    "--artifact", "canvas", "--connector-receipt", receipt)
+
+    assert code == 0
+    assert out["status"] == "manual_required"
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "manual_required"
 
 
 def test_semantic_channel_accepts_the_renderers_own_rewrite(capsys, doc, cfg):
@@ -493,6 +769,147 @@ def test_required_ontology_blocks_close_until_ttl_or_graph_readback(capsys, doc,
     code, out = run(capsys, "close", "--doc", doc, "--lease", lease)
     assert code == 7
     assert any("ontology" in blocker for blocker in out["blockers"])
+
+
+def test_required_ontology_rejects_generic_prose_recording(capsys, doc, cfg):
+    """P0: a required graph cannot become verified through generic MD read-back."""
+    with cfg.open("a", encoding="utf-8") as handle:
+        handle.write("ontology: {required: true}\n")
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "ontology")
+
+    code, _ = _record(capsys, doc, cfg, lease, artifact="ontology",
+                      body=with_footer(doc, "ontology", "arbitrary prose"), ext_id="local-claim")
+
+    assert code == 2
+    assert manifest_of(doc)["artifacts"]["ontology"]["status"] == "pending"
+
+
+def test_ontology_runner_validates_loads_and_queries_before_verification(capsys, doc, cfg):
+    """P0: a configured runner must complete TTL validate→load→query read-back."""
+    runner = doc.parent / "fake_ontology_runner.py"
+    calls = runner.with_suffix(".calls")
+    runner.write_text(
+        "from pathlib import Path\n"
+        "import json, sys\n"
+        "with Path(__file__).with_suffix('.calls').open('a', encoding='utf-8') as out:\n"
+        "    out.write(sys.argv[1] + '\\n')\n"
+        "print(json.dumps({'count': 1} if sys.argv[1] == 'query' else {'ok': True}))\n",
+        encoding="utf-8",
+    )
+    command = f'\"{sys.executable}\" \"{runner}\"'
+    with cfg.open("a", encoding="utf-8") as handle:
+        handle.write("ontology:\n  required: true\n  runner: " + json.dumps(command) + "\n")
+    lease = approve(capsys, doc, cfg)
+    ttl = doc.parent / "meeting.ttl"
+    iri = "urn:meeting:260727"
+    ttl.write_text(f"<{iri}> <urn:predicate:decision> \"approved\" .\n", encoding="utf-8")
+
+    code, _ = run(capsys, "ontology", "--doc", doc, "--config", cfg, "--lease", lease,
+                  "--ttl-file", ttl, "--meeting-iri", iri)
+
+    assert code == 0
+    assert calls.read_text(encoding="utf-8").splitlines() == ["validate", "load", "query"]
+    art = manifest_of(doc)["artifacts"]["ontology"]
+    assert art["status"] == "readback_verified"
+    assert art["provenance"]["mode"] == "runner"
+
+
+def _approve_ontology_only(capsys, doc, cfg):
+    cfg.write_text(
+        "categories:\n"
+        "  ontology_only: {vault: false, canvas: false, gmail: false, share_md: false}\n"
+        "runtime: {state_dir: .mm, lease_ttl_min: 30}\n"
+        "ontology: {required: true, runner: null}\n",
+        encoding="utf-8",
+    )
+    code, approved = run(capsys, "approve", "--doc", doc, "--config", cfg,
+                         "--category", "ontology_only")
+    assert code == 0, approved
+    return approved["lease"]
+
+
+@pytest.mark.parametrize("label,ttl_text", [
+    ("unknown-escape", '<urn:meeting:invalid> <urn:predicate:test> "bad \\q" .\n'),
+    ("malformed-unicode", '<urn:meeting:invalid> <urn:predicate:test> "bad \\u12G4" .\n'),
+    ("unterminated-literal", '<urn:meeting:invalid> <urn:predicate:test> "bad .\n'),
+    ("malformed-iri", '<urn:meeting:invalid> <urn:predicate bad> "ok" .\n'),
+    ("broken-directive", '@prefix ex <urn:example:> .\n<urn:meeting:invalid> ex:p "ok" .\n'),
+])
+def test_runnerless_ontology_rejects_invalid_turtle_syntax_and_keeps_close_blocked(
+        capsys, doc, cfg, label, ttl_text):
+    """P1: lexical shape is only a rejection filter, never a promotion proof."""
+    lease = _approve_ontology_only(capsys, doc, cfg)
+    ttl = doc.parent / f"{label}.ttl"
+    ttl.write_text(ttl_text, encoding="utf-8")
+
+    code, _ = run(capsys, "ontology", "--doc", doc, "--config", cfg, "--lease", lease,
+                  "--ttl-file", ttl, "--meeting-iri", "urn:meeting:invalid",
+                  "--degraded-reason", "runner unavailable in test environment")
+
+    assert code == 2
+    assert manifest_of(doc)["artifacts"]["ontology"]["status"] == "pending"
+    assert run(capsys, "close", "--doc", doc, "--lease", lease)[0] == 7
+
+
+def test_runnerless_valid_turtle_without_trusted_validator_is_manual_required(capsys, doc, cfg):
+    """P1: saving a syntactically plausible TTL cannot self-attest completion."""
+    lease = _approve_ontology_only(capsys, doc, cfg)
+    iri = "urn:meeting:260727"
+    ttl_text = f"<{iri}> <urn:predicate:decision> \"approved\" .\n"
+    ttl = doc.parent / "meeting.ttl"
+    ttl.write_text(ttl_text, encoding="utf-8")
+
+    code, out = run(capsys, "ontology", "--doc", doc, "--config", cfg, "--lease", lease,
+                    "--ttl-file", ttl, "--meeting-iri", iri,
+                    "--degraded-reason", "runner unavailable in test environment")
+
+    assert code == 0 and out["status"] == "manual_required"
+    assert manifest_of(doc)["artifacts"]["ontology"]["status"] == "manual_required"
+    assert run(capsys, "close", "--doc", doc, "--lease", lease)[0] == 7
+
+
+def test_runnerless_valid_turtle_requires_authenticated_validator_receipt(capsys, doc, cfg):
+    """P1: only a hash-bound trusted parser receipt can prove degraded completion."""
+    lease = _approve_ontology_only(capsys, doc, cfg)
+    iri = "urn:meeting:260727"
+    ttl_text = f"<{iri}> <urn:predicate:decision> \"approved\" .\n"
+    ttl = doc.parent / "meeting.ttl"
+    ttl.write_text(ttl_text, encoding="utf-8")
+    receipt = doc.parent / "validator-receipt.json"
+    receipt.write_text(json.dumps(authenticated_ontology_validator_receipt(ttl_text, iri)),
+                       encoding="utf-8")
+
+    code, out = run(capsys, "ontology", "--doc", doc, "--config", cfg, "--lease", lease,
+                    "--ttl-file", ttl, "--meeting-iri", iri,
+                    "--degraded-reason", "trusted parser capability receipt",
+                    "--validator-receipt", receipt)
+
+    assert code == 0 and out["status"] == "readback_verified"
+    assert out["provenance"]["mode"] == "validator_receipt"
+    assert run(capsys, "close", "--doc", doc, "--lease", lease)[0] == 0
+
+
+def test_runnerless_forged_validator_receipt_is_manual_required(capsys, doc, cfg):
+    """P1: unsigned parser claims are local JSON, not validation proof."""
+    lease = _approve_ontology_only(capsys, doc, cfg)
+    iri = "urn:meeting:260727"
+    ttl_text = f"<{iri}> <urn:predicate:decision> \"approved\" .\n"
+    ttl = doc.parent / "meeting.ttl"
+    ttl.write_text(ttl_text, encoding="utf-8")
+    forged = authenticated_ontology_validator_receipt(ttl_text, iri)
+    forged["validator"]["signature"] = "forged"
+    receipt = doc.parent / "forged-validator-receipt.json"
+    receipt.write_text(json.dumps(forged), encoding="utf-8")
+
+    code, out = run(capsys, "ontology", "--doc", doc, "--config", cfg, "--lease", lease,
+                    "--ttl-file", ttl, "--meeting-iri", iri,
+                    "--degraded-reason", "untrusted parser claim",
+                    "--validator-receipt", receipt)
+
+    assert code == 0 and out["status"] == "manual_required"
+    assert manifest_of(doc)["artifacts"]["ontology"]["status"] == "manual_required"
+    assert run(capsys, "close", "--doc", doc, "--lease", lease)[0] == 7
 
 
 def test_close_exits_7_on_open_blocking_manual_item(capsys, doc, cfg):
@@ -634,11 +1051,44 @@ def test_status_surfaces_an_orphan_run_after_a_rename(capsys, plain_doc, cfg):
 
 def test_fail_logs_without_a_lease(capsys, doc, cfg):
     approve(capsys, doc, cfg)
-    code, _ = run(capsys, "fail", "--doc", doc, "--artifact", "canvas",
-                  "--class", "transient", "--key", "canvas.rate_limit",
-                  "--detail", "429")
-    assert code == 0
-    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "failed"
+    code, out = run(capsys, "fail", "--doc", doc, "--artifact", "canvas",
+                    "--class", "transient", "--key", "canvas.rate_limit",
+                    "--detail", "429")
+    assert code == 0 and out["state_changed"] is False
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "pending"
+    assert S.read_events(state_dir(doc) / "runs.jsonl")[-1]["event"] == "tool_error"
+
+
+def test_unsubstantiated_fail_on_complete_run_logs_only_and_does_not_reopen(capsys, doc, cfg):
+    """P1: generic failure reports are observations, not revoke authority."""
+    lease = approve(capsys, doc, cfg)
+    _full_publish(capsys, doc, cfg, lease)
+    assert run(capsys, "close", "--doc", doc, "--lease", lease)[0] == 0
+
+    code, out = run(capsys, "fail", "--doc", doc, "--artifact", "vault",
+                    "--class", "contract", "--key", "vault.unverified_claim",
+                    "--impact", "manual_recovery", "--detail", "no attached audit evidence")
+
+    assert code == 0 and out["state_changed"] is False
+    assert manifest_of(doc)["status"] == "complete"
+    assert manifest_of(doc)["artifacts"]["vault"]["status"] == "readback_verified"
+    assert S.read_events(state_dir(doc) / "runs.jsonl")[-1]["event"] == "tool_error"
+
+
+def test_evidenced_revoke_is_the_only_path_that_invalidates_a_verified_artifact(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    _record(capsys, doc, cfg, lease)
+    _verify(capsys, doc, lease)
+    evidence = audit_evidence_file(doc, "canvas", "remote read-back disproved the artifact")
+
+    code, out = run(capsys, "revoke", "--doc", doc, "--config", cfg, "--lease", lease,
+                    "--artifact", "canvas", "--evidence-file", evidence,
+                    "--key", "canvas.audit_invalidated")
+
+    assert code == 0 and out["revoked"] is True and out["evidence_sha256"]
+    art = manifest_of(doc)["artifacts"]["canvas"]
+    assert art["status"] == "failed" and art["audit_evidence"]["sha256"] == out["evidence_sha256"]
 
 
 def test_audit_failure_revokes_verified_artifact_and_recovery_is_readback_only(capsys, doc, cfg):
@@ -647,10 +1097,11 @@ def test_audit_failure_revokes_verified_artifact_and_recovery_is_readback_only(c
     _record(capsys, doc, cfg, lease)
     _verify(capsys, doc, lease)
 
-    code, _ = run(capsys, "fail", "--doc", doc, "--artifact", "canvas",
-                  "--class", "contract", "--key", "canvas.audit_invalidated",
-                  "--impact", "manual_recovery", "--detail", "read-back was self-derived")
-    assert code == 0
+    evidence = audit_evidence_file(doc, "canvas", "read-back was self-derived")
+    code, out = run(capsys, "revoke", "--doc", doc, "--config", cfg, "--lease", lease,
+                    "--artifact", "canvas", "--evidence-file", evidence,
+                    "--key", "canvas.audit_invalidated")
+    assert code == 0 and out["revoked"] is True
     assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "failed"
 
     code, out = run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
@@ -664,19 +1115,19 @@ def test_audit_failure_revokes_verified_artifact_and_recovery_is_readback_only(c
 
 
 def test_post_close_audit_failure_reopens_with_a_recovery_lease(capsys, doc, cfg):
-    """M4: a post-close audit must reopen, lease, re-read, and re-close the run."""
+    """M4: evidenced post-close audit reopens, leases, re-reads, and re-closes."""
     lease = approve(capsys, doc, cfg)
     _full_publish(capsys, doc, cfg, lease)
     close_code, _ = run(capsys, "close", "--doc", doc, "--lease", lease)
     assert close_code == 0
 
-    fail_code, fail_out = run(
-        capsys, "fail", "--doc", doc, "--config", cfg, "--artifact", "vault",
-        "--class", "contract", "--key", "vault.audit_invalidated",
-        "--impact", "manual_recovery", "--detail", "post-close audit",
+    evidence = audit_evidence_file(doc, "vault", "post-close audit")
+    revoke_code, revoke_out = run(
+        capsys, "revoke", "--doc", doc, "--config", cfg, "--artifact", "vault",
+        "--evidence-file", evidence, "--key", "vault.audit_invalidated",
     )
-    assert fail_code == 0
-    recovery_lease = fail_out["recovery_lease"]
+    assert revoke_code == 0
+    recovery_lease = revoke_out["recovery_lease"]
     manifest = manifest_of(doc)
     assert manifest["status"] == "reopened"
     assert manifest["artifacts"]["vault"]["status"] == "failed"

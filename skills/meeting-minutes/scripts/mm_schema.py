@@ -39,6 +39,18 @@ def _text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _iso_calendar_date(value: object) -> bool:
+    """Accept YAML date scalars or exact YYYY-MM-DD strings, never loose prose."""
+    if type(value) is date:
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
 def validate_metadata(data: dict) -> list[str]:
     """Return human-readable errors; absent schema_version means legacy-compatible."""
     if "schema_version" not in data:
@@ -79,8 +91,8 @@ def validate_metadata(data: dict) -> list[str]:
             for key in ("id", "org", "owner", "status", "text"):
                 if not _text(item[key]):
                     errors.append(f"action_items[{index}].{key} must be a non-empty string")
-            if not isinstance(item["due"], (str, date)):
-                errors.append(f"action_items[{index}].due must be an ISO date string or date")
+            if not _iso_calendar_date(item["due"]):
+                errors.append("action_items[{}].due must be an ISO calendar date (YYYY-MM-DD)".format(index))
             if item.get("id") in seen_ids:
                 errors.append(f"action_items[{index}].id duplicates {item['id']!r}")
             seen_ids.add(item.get("id"))

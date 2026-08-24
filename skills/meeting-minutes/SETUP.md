@@ -1,6 +1,6 @@
 # meeting-minutes — 설치 (follow-along)
 
-> 요약 — **필수 구성은 최소**. Claude Code + Python + PyYAML만 있으면 동작. 나머지 통합(Slack·Gmail·검색·지식그래프)은 *전부 선택*이며 미설치 시 결과를 `.md` 파일로 출력(실패 아님). 위에서 아래로 순서대로 진행
+> 요약 — **필수 구성은 최소**. Claude Code + Python + PyYAML만 있으면 동작. Slack·Gmail·검색은 선택이며 미설치 시 `.md` 파일 fallback을 사용한다. ontology는 `required: false` (또는 `ontology` key 없음)일 때만 선택이다. `required: true`인데 runner/capability가 없으면 TTL 후보와 reason·path·provenance를 보존하되 `manual_required`로 남아 `close=7`이다. hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1`가 있어야 validated deferred-load TTL로 완료할 수 있으며, 단순 skip은 허용하지 않는다. 위에서 아래로 순서대로 진행
 
 ---
 
@@ -71,10 +71,10 @@ python scripts/dry_run.py              # config·profile 검증 → PASS 출력 
 | **Gmail** | 정기회의 메일 *초안 자동 생성* | claude.ai Gmail 커넥터(누구나 가능). 미보유 시 메일 본문 `.md` 출력 |
 | **Slack Canvas** | Canvas 자동 생성·공유 | **작성자 bespoke 로컬 MCP** — 팀원 대부분 미보유. 미보유 시 Canvas 본문 `.md` 출력 |
 | **qmd (검색 인덱싱)** | 회의록 검색 인덱싱 | bespoke 로컬 도구. 미보유 시 인덱싱 생략 |
-| **ontology (지식그래프)** | 결정사항 그래프 기록 | bespoke 로컬 도구. 미보유 시 phase 7 통째 생략 |
+| **ontology (지식그래프)** | 결정사항 그래프 기록 | `required: false` (또는 `ontology` key 없음)면 phase 7 생략. `required: true`인데 runner/capability가 없으면 TTL 후보를 reason·path·provenance와 함께 `manual_required`로 보존해 `close=7`. hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1`가 있어야 validated deferred-load TTL로 완료 |
 | **Whisper (오디오 STT)** | 녹음파일 → 텍스트 | `pip install openai-whisper`(torch 포함이라 용량 큼). 텍스트/PDF만 사용 시 불필요 |
 
-> 팀원 기본 경로 = Slack/qmd/ontology 없이 `.md` 산출물 수동 공유 (작성자 전용 로컬 서버라 이식 곤란). `config.tools`에서 `off` 지정 가능
+> 팀원 기본 경로 = Slack/qmd 없이 `.md` 산출물 수동 공유. ontology는 `required: false` (또는 `ontology` key 없음)일 때만 생략 가능하다. `required: true`에서 runner/capability가 없으면 TTL 후보를 보존하지만 `manual_required`로 `close=7`이다. hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1`만 deferred-load TTL 검증을 증명한다. `config.tools`에서 `off` 지정 가능
 
 ---
 

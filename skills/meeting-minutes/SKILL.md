@@ -43,7 +43,7 @@ Apply `references/engine/writing-principles.md` before drafting any body text �
 
 ## 2. Pipeline (7 phases)
 
-Full skeleton in `references/engine/pipeline.md`; canonical phase names in `references/engine/CONTRACT.md`. Phases 1.5 (materials comprehension) and 6.5 (topic sync) are optional — omit entirely if the config key / tool is absent. Phase 7 (knowledge-graph) follows `config.ontology.required`: when true it is a normal step of every run, and a missing runner degrades to a saved `.ttl` rather than a skip.
+Full skeleton in `references/engine/pipeline.md`; canonical phase names in `references/engine/CONTRACT.md`. Phases 1.5 (materials comprehension) and 6.5 (topic sync) are optional — omit entirely if the config key / tool is absent. Phase 7 (knowledge-graph) follows `config.ontology.required`: when true it is a normal step of every run. A missing runner preserves a TTL candidate, but it remains `manual_required` with `close=7` until a hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` validates it; it is never silently skipped.
 
 > **Materials are not optional context.** With `config.materials` set, every attached deck/sheet/report in the input folder is digested (phase 1.5) *before* drafting, and the closing summary states which handler read what. Drafting an agenda item from a filename while its deck sat unread in the folder is a failed run, not a shortcut.
 
@@ -95,7 +95,7 @@ Detail in `references/engine/tooling.md`. Boot: detect tools → produce only av
 - Environment: `pip install -r requirements.txt` → `python scripts/preflight.py` (must show READY).
 - No `config.yaml` → `/meeting-minutes` runs the `ONBOARDING.md` interview (one question at a time, auto-generates config + profile). Manual alternative: copy `config.example.yaml` + `profiles/_template/`, fill in all `<...>`. `profiles/example-acme/` = sanitized format reference.
 - Validate before first run: `python scripts/dry_run.py` (**PASS**) + `bash verify.sh` (when modifying the skill — engine purity + placeholder↔config).
-- All integrations (Slack/Gmail/qmd) are **optional**; ontology follows `config.ontology.required` — absent → `.md` fallback, not a failure. Detail in `SETUP.md` §3.
+- All integrations (Slack/Gmail/qmd) are **optional**. Ontology follows `config.ontology.required`: absent means skip; when `required: true`, a missing runner/capability leaves its TTL `manual_required` with `close=7` until a hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` validates it. Detail in `SETUP.md` §3.
 
 > Personal information (real contacts, customer names) goes in `config.yaml` and your own profile — both are `.gitignore`d. Only the engine, `_template`, and `example-acme` go into the shared repo.
 > **Language**: Output boilerplate (`# 개요` / `Action Items` / 메일 인사말, etc.) **defaults to Korean**. `locale.language` / `business_style` drives the *prose style* guidance for body text; header/label strings are overridden via the `config.yaml locale.headers` map (e.g. `{"이전 회의 연계 맥락": "Prior Meeting Context"}`) — `build_prompt.py --config` applies it to the generated prompt, and the runtime must honor the same map when emitting deliverables.

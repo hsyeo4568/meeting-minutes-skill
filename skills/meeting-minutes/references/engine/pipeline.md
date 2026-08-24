@@ -101,15 +101,15 @@ node was written. `required: false` (or no `ontology` key) skips the phase entir
   parse error at validate costs nothing; a half-loaded batch is a hand-repair.
 - **Invocation, in order** — `config.ontology.runner` is a command line, invoked as
   `<runner> validate <file.ttl>` then `<runner> load <file.ttl>`, with `ONTOLOGY_DB` set to
-  `config.ontology.store` and `runner_env` exported. `runner: null` ⇒ use the host's ontology
-  *load-ttl capability* instead (resolve the literal tool name from your own tool list).
-  **Never import a graph library (pyoxigraph, rdflib) directly** — the runner and the capability
-  both encapsulate quirks that hand-rolled code re-discovers as data loss.
+  `config.ontology.store` and `runner_env` exported. `runner: null` ⇒ obtain a trusted host
+  `turtle-parse/1` validation capability and preserve its hash-bound authenticated
+  `mm-ontology-validator-receipt/1`; never replace it with hand-rolled graph parsing.
 - **Loaded is not written.** After `load`, query the meeting IRI back and confirm the triples are
   there — same read-back discipline as every other artifact. Report the before/after triple count.
-- **Degradation.** Runner missing, store path absent, or the capability unavailable ⇒ save the
-  `.ttl` beside the work MD and report "graph load deferred — <reason>, TTL at <path>". That is a
-  degraded artifact, not a skipped one, and it belongs in the closing summary as such.
+- **Degradation.** Runner missing, store path absent, or the capability unavailable ⇒ preserve the
+  `.ttl` candidate with its reason/path, but mark phase 7 `manual_required` and keep `close=7`.
+  A hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` is required
+  before it becomes a validated deferred-load artifact. This is not a skipped phase.
 - **Staleness check before you trust it.** The store may have no automated writer at all; a fresh
   derived artifact elsewhere is not evidence that it is current. If a phase-3 context lookup wants
   graph data, first confirm recency (most recent date in the store) and fall back to reading the
