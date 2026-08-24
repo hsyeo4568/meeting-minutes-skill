@@ -1068,6 +1068,29 @@ def cmd_close(a) -> int:
     return 0
 
 
+def cmd_refresh(a) -> int:
+    """Extend a live lease in place. Never mints a run_id — that is `approve`'s job.
+
+    Without this, the only way past an expired lease is re-approving, which
+    supersedes the run and stales every published artifact. A handoff between
+    node processes can easily outlast the default TTL.
+    """
+    cfg = load_config(a.config)
+    ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
+    doc_id, run_id, _ = ws.load_run()
+    require_lease(ws, doc_id, a.lease)
+    ttl = a.ttl_min if a.ttl_min is not None else DEFAULT_TTL_MIN
+    index = ws.index()
+    S.write_index_cas(ws.index_path, S.refresh_lease(index, doc_id, ttl, S.utcnow()),
+                      index["version"])
+    expires_at = ws.index()["docs"][doc_id]["lock"]["expires_at"]
+    ws.log(doc_id=doc_id, run_id=run_id, event="lease_refreshed", impact="none",
+           detail=f"ttl_min={ttl}")
+    emit({"run_id": run_id, "lease": a.lease, "expires_at": expires_at},
+         f"lease extended to {expires_at}")
+    return 0
+
+
 def cmd_abort(a) -> int:
     cfg = load_config(a.config)
     ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
@@ -1323,6 +1346,10 @@ def build_parser() -> argparse.ArgumentParser:
     m.set_defaults(func=cmd_manual)
 
     common(sub.add_parser("close")).set_defaults(func=cmd_close)
+
+    rf = common(sub.add_parser("refresh"))
+    rf.add_argument("--ttl-min", type=int, default=None)
+    rf.set_defaults(func=cmd_refresh)
 
     ab = common(sub.add_parser("abort"))
     ab.add_argument("--reason")

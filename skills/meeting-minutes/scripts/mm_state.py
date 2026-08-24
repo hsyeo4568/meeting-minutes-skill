@@ -57,7 +57,7 @@ HIGH_IMPACT = {"external_share_error", "data_loss", "manual_recovery"}
 # Bookkeeping the runner emits itself — never candidates for failure triage.
 PROTOCOL_EVENTS = {
     "approve", "gate_pass", "create_claimed", "artifact_created", "artifact_verified",
-    "manual_added", "manual_done", "close", "abort", "gc",
+    "manual_added", "manual_done", "lease_refreshed", "close", "abort", "gc",
 }
 
 

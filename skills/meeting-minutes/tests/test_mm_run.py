@@ -14,6 +14,7 @@ import os
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1283,3 +1284,39 @@ def test_a_real_readback_after_a_named_gap_still_verifies(capsys, doc, cfg):
     code, _ = _verify(capsys, doc, lease)
     assert code == 0
     assert manifest_of(doc)["artifacts"]["canvas"]["status"] == "readback_verified"
+
+
+# =========================================================================
+# Lease refresh — a live lease can be extended without superseding the run
+# =========================================================================
+
+def _index_of(doc):
+    return json.loads((state_dir(doc) / "index.json").read_text(encoding="utf-8"))
+
+
+def test_refresh_extends_the_lease_without_minting_a_new_run(capsys, doc, cfg):
+    lease = approve(capsys, doc, cfg)
+    before = _index_of(doc)
+    doc_id = next(iter(before["docs"]))
+    run_before = before["docs"][doc_id]["current_run"]
+
+    code, out = run(capsys, "refresh", "--doc", str(doc), "--config", str(cfg),
+                    "--lease", lease, "--ttl-min", "90")
+
+    assert code == 0
+    after = _index_of(doc)
+    lock = after["docs"][doc_id]["lock"]
+    assert after["docs"][doc_id]["current_run"] == run_before, "refresh must not supersede the run"
+    assert lock["lease"] == lease, "refresh must keep the same bearer token"
+    remaining = datetime.fromisoformat(lock["expires_at"]) - S.utcnow()
+    assert remaining > timedelta(minutes=60), "ttl was not extended"
+    assert out["lease"] == lease
+
+
+def test_refresh_with_a_foreign_lease_is_rejected(capsys, doc, cfg):
+    approve(capsys, doc, cfg)
+
+    code, _ = run(capsys, "refresh", "--doc", str(doc), "--config", str(cfg),
+                  "--lease", "0" * 32, "--ttl-min", "90")
+
+    assert code == 5, "a non-holder must not be able to extend someone else's lease"
