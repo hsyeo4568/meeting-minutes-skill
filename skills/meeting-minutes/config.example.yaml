@@ -95,17 +95,6 @@ vault_frontmatter:
              attachments, recording, slack_canvas_id, issues_discussed,
              decisions, action_items, description, projects, tags]
 
-# Knowledge-graph (pipeline phase 7). `required: true` makes phase 7 a normal step of every
-# run instead of an optional add-on — a run that skips it is incomplete, and the closing summary
-# must say so. `runner` is the command that persists Turtle; it is invoked as
-#   <runner> validate <file.ttl>   then   <runner> load <file.ttl>
-# and must exit non-zero on a parse error. Leave `runner: null` to fall back to the MCP
-# load-ttl capability, and set `required: false` if this vault keeps no graph at all.
+# Ontology IRI namespace (only used if tools.ontology is available)
 ontology:
-  required: false
-  namespace: "<https://your.vault/ontology#>"          # vocabulary/predicate namespace
-  entity_namespace: "<https://your.vault/entity/>"     # subject IRIs (meetings, decisions)
-  store: "<path/to/store.db>"                          # exported to the runner as ONTOLOGY_DB
-  runner: null                                         # e.g. "<python> <path/to/ontology/cli.py>"
-  runner_env:                                          # env the runner needs; {} when none
-    PYTHONIOENCODING: utf-8
+  namespace: "<https://your.vault/ontology#>"

@@ -2,7 +2,7 @@
 """Read-back comparison across a rendering channel.
 
 Fixtures below are the real transformations a live Slack canvas applied to a
-sent body (measured 2026-07-27 on a live canvas): `-` bullets rewritten to
+sent body (measured 2026-07-27, canvas F0BKYK01A7L): `-` bullets rewritten to
 `*`, dates wrapped as `![](slack_date:…)`, blank lines inserted after headings.
 """
 from __future__ import annotations

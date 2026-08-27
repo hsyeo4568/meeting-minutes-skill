@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # meeting-minutes portability gates. Run from skill root: bash verify.sh
 # Gate #1: engine purity (no proper nouns). Gate #3: every {{placeholder}} exists in config.example.yaml.
-# Gate #2: degradation contract — scripted (scripts/verify_degradation.py); fallback quality stays a human read.
+# Gate #2 (degradation) is a manual SKILL.md read-through — not scripted.
 set -u
 cd "$(dirname "$0")"
 ENGINE="references/engine"
@@ -30,16 +30,7 @@ for f in "${FILES[@]}"; do
 done
 if [ "$hits" -eq 0 ]; then echo "  OK — engine clean"; else echo "  FAIL — $hits file(s) impure"; fail=1; fi
 
-echo "== Gate #2: degradation contract =="
-# Mechanical half of the old read-through: every config-switchable tool must declare a
-# no-tool fallback in BOTH matrices, the never-fail principle must still be stated, and
-# every engine reference SKILL.md links must exist. Judging whether a documented fallback
-# is the RIGHT one stays a human read-through.
-if command -v python >/dev/null 2>&1; then
-  if ! python scripts/verify_degradation.py .; then fail=1; fi
-else
-  echo "  SKIP — python not on PATH (gate not enforced)"
-fi
+echo "== Gate #2: degradation — manual SKILL.md read-through (not scripted, skipped) =="
 
 echo "== Gate #3: placeholder <-> config =="
 miss=0

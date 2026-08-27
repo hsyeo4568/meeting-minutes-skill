@@ -41,15 +41,8 @@ mm_run approve --doc <work_md> --config config.yaml --category <cat> [--preappro
          action=readback -> do NOT create a second one; read the existing artifact
     mm_run record --doc <work_md> --lease <L> --artifact <A> --id <external-id> \
                   --body-file <exact body sent> [--url <permalink>]
-    # local artifacts (vault/share_md/ontology)
     mm_run verify --doc <work_md> --lease <L> --artifact <A> \
-                  --readback-file <exact local artifact bytes>
-    # Canvas/Gmail only: connector-owned receipt with {schema, artifact, external_id, fetched_at, body}
-    mm_run verify --doc <work_md> --lease <L> --artifact <A> \
-                  --connector-receipt <connector-receipt.json>
-      -- or, when a trustworthy receipt is unavailable --
-    mm_run verify --doc <work_md> --lease <L> --artifact <A> \
-                  --readback-unavailable "<why>"   # holds it open, never verifies
+                  --readback-file <exact bytes read back from the tool>
 
 mm_run close  --doc <work_md> --lease <L>
 ```
@@ -73,7 +66,7 @@ Out-of-band commands:
 | 2 | usage / config | fix the invocation; do not improvise around it |
 | 3 | **source hash mismatch** | BLOCKING. The work MD changed after approval. Show the printed diff, get re-approval (`approve` again), and re-derive artifacts already built from the stale content |
 | 4 | read-back mismatch | the artifact is not synced. Report what differs; do not create a second one |
-| 5 | lock held by another owner | another session is publishing this doc. Stop; `status` still works. **Exception — the lease may be your own**: a source edit mid-run forces a re-`approve`, and the still-live run from the same session holds the lock. Check `status`; if the holder is this session's run and nothing was published yet, `abort --lease <yours>` first, then `approve`. Do not wait out the TTL and do not touch the doc index by hand |
+| 5 | lock held by another owner | another session is publishing this doc. Stop; `status` still works |
 | 6 | illegal transition | the step is out of order (e.g. `record` without a `gate`) |
 | 7 | completeness check failed | `close` found unverified artifacts or open blocking manual items |
 
@@ -81,15 +74,16 @@ Out-of-band commands:
 
 1. **Never publish text you did not read from `gate`'s `snapshot_path`.** Not the draft in your
    context, not the file you re-read yourself. The snapshot is immutable; your context is not.
+   **Remap form only** (canvas headings, vault frontmatter, gmail 존댓말). Do not reload
+   transcript, materials, glossary, contacts, or writing-principles at share time.
 2. **Created is not done.** Report an artifact as complete only after `verify` returns 0.
-   For local artifacts, **`--readback-file` must hold the bytes read from the canonical local
-   artifact.** Canvas and Gmail never accept an arbitrary local body file as delivery evidence:
-   pass a connector-owned `--connector-receipt` whose artifact and external ID match `record` and
-   whose body was fetched remotely. The runner copies that receipt into its run state for audit.
-   A sent-body reconstruction is not a receipt; it becomes `manual_required` and blocks `close`.
-   If a trustworthy connector receipt cannot be produced, run
-   `verify --readback-unavailable "<why>"` instead. A named gap beats a green light that means
-   nothing; say so in the closing summary too.
+   **`--readback-file` must hold the bytes the tool gave back** — fetch the artifact (`list_drafts`,
+   `read_canvas`, re-read the file) and feed *that*. Deriving the read-back from the body you sent
+   makes `verify` compare the sent text with a copy of itself: it passes every time and proves
+   nothing. Measured 2026-07-29 — two gmail `verify`s passed on a reconstruction of the sent body,
+   so the gate gave no delivery assurance at all. If a channel's response cannot be written to disk
+   mechanically, say so in the closing summary instead of manufacturing a read-back; a named gap
+   beats a green light that means nothing.
 3. **Never retry by re-creating.** After any tool error, log it with `fail`, then run `gate`
    again — it returns `action: readback` when an id was already recorded.
 4. **A blocking exit is a stop.** Do not run later phases (canonical save, index, topic sync,

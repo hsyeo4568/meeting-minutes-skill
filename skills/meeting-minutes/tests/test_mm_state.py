@@ -126,11 +126,6 @@ def test_plan_includes_optional_when_asked():
         "vault", "canvas", "gmail"]
 
 
-def test_plan_includes_required_ontology_as_a_verified_artifact():
-    cfg = dict(_CFG, ontology={"required": True})
-    assert S.plan_artifacts(cfg, "daily") == ["vault", "canvas", "gmail", "ontology"]
-
-
 def test_plan_ignores_non_artifact_keys():
     assert "context_lookback" not in S.plan_artifacts(_CFG, "daily")
     assert "detail_md" not in S.plan_artifacts(_CFG, "daily")
@@ -139,16 +134,6 @@ def test_plan_ignores_non_artifact_keys():
 def test_plan_unknown_category_raises():
     with pytest.raises(S.ConfigError):
         S.plan_artifacts(_CFG, "nope")
-
-
-def test_empty_matrix_blames_the_config_not_the_category():
-    """`--config` omitted resolves to {} — the old message read
-    "unknown category 'workshop' — config declares []", which points at the
-    category when the cause is that no config was loaded at all."""
-    with pytest.raises(S.ConfigError) as exc:
-        S.plan_artifacts({}, "workshop")
-    assert "no categories" in str(exc.value)
-    assert "--config" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

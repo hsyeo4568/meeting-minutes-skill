@@ -105,6 +105,7 @@ When the category row declares `body_mode: axis`, the numbered sections above ar
 
 ## canvas — periodic / workshop review surface
 
+Phase 5 remap of the approved snapshot, not a new draft. Keep 개조식. Map existing sections onto the three headings below — do not reload transcript/glossary/writing-principles or invent facts.
 Tables absolutely prohibited — Action Items and all content must use checkbox lists.
 Top-level three-section structure: `# 개요` / `# 논의 내용` / `# Action Items`. AI-generated headers such as "핵심 발견" are prohibited.
 
@@ -148,7 +149,7 @@ Use `{{slack_channel_id}}` when posting to a channel.
 인사(고정 문구는 profile) → 회의록 본문 → Action Items(조직별) → 맺음(고정 문구는 profile)
 ```
 
-- **Meeting-minutes mail = full meeting-minutes body in the mail body.** A summary-only or "Canvas link only" single line is prohibited — depth standard = **the most recent sent meeting-minutes mail** (Read only the latest 1 item then mirror; do not re-read others). Attachments (reports) are announced in the greeting only.
+- **Meeting-minutes mail = the approved snapshot in 존댓말**, not a second draft from the transcript. Greeting/closing: profile template, or Read only the latest 1 sent minutes mail and mirror the envelope — do not rewrite the meeting body from that mail. A summary-only or "Canvas link only" single line is prohibited. Attachments (reports) are announced in the greeting only.
 - Tables prohibited; use lists/checklists. To/CC filled from profile contacts mapping. `create_draft` accepts plain email only (the `이름 <메일>` format is not supported).
 - Attendees not found in contacts must be explicitly printed in the To field as `[미확인: 이름]` placeholder — no guessing or silent omission (the user fills them in during draft review).
 
@@ -156,8 +157,10 @@ Use `{{slack_channel_id}}` when posting to a channel.
 
 ## vault — authoritative copy
 
-Frontmatter is composed from `config.vault_frontmatter.required` fields.
-Body section order (fixed):
+Body = copy of the approved snapshot (same sections). Frontmatter from `config.vault_frontmatter.required`. Do not restack into a second outline. Ontology/qmd only if phase 7 was asked.
+
+If the store needs these headings, map existing snapshot headings — do not rewrite facts:
+Body section order (illustration):
 
 ```
 ---
@@ -183,4 +186,4 @@ Body section order (fixed):
 ## 일정
 ```
 
-After saving, index with qmd if available; record decisions/relations with ontology if available.
+After saving, index with qmd only if that tool was already in the run; do not start phase 7 from vault save.

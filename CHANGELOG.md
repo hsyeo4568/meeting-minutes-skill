@@ -5,6 +5,34 @@
 
 ---
 
+## [1.1.1] — 2026-08-27
+
+**요약** — ① 부트 라우터가 vault·ontology/phase 7을 항상 읽지 않음, ② canvas/gmail/vault 공유는 승인 스냅샷만 (녹취 재읽기 없음), ③ register-gate 예시에서 머신 경로 제거
+
+### 추가
+
+- `tests/test_skill_router.py` — 부트 라우터가 writing-principles / pipeline / vault / glossary / ontology를 항상 로드하지 않는지 고정
+- `tests/test_share_remap.py` — 공유 본문이 승인 스냅샷에서만 오는지 고정
+
+### 변경
+
+- **부트 라우터** — SKILL.md가 설정·카테고리만 읽고 멈춤. vault·glossary·ontology·phase 7은 해당 단계가 아니면 로드하지 않음. phase 7 default OFF
+- **스냅샷 공유 (phase 5)** — canvas/gmail/vault는 승인 스냅샷 remap. 녹취·glossary·writing-principles를 다시 읽지 않음. `share-check` Exit 8 유지
+
+### 고침
+
+- register-gate 예시가 머신 절대 경로를 담고 있어 공개 배포 leak scan에 걸리던 문제. 지금은 `python prose_lint.py "<path>" --register "<id>" --json`
+
+### 설치 · 업데이트
+
+- 재설치 금지. 엔진만 교체:
+
+  ```bash
+  python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
+  ```
+
+---
+
 ## [1.1.0] — 2026-08-06
 
 **요약** — ① 긴 회의를 논점별로 묶는 본문 모드, ② 첨부자료 선(先)이해 단계, ③ 공유 결과를 확인으로 남기는 게시 절차

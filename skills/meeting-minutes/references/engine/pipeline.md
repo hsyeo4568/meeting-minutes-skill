@@ -55,12 +55,13 @@ Runs after the manifest, before drafting. Goal: the deck/sheet's **meaning** ent
 
 - **Determine the category first** — channel confusion is the most frequent mistake.
   - Determination basis = the per-category discriminator signals in the profile's `structure.md`. **If signals are ambiguous or contradictory, do not proceed on a guess — confirm the category with the user** before generating any output (a misclassification risks sending to the wrong external channel).
-- Apply the config's `categories` matrix (output-templates.md): determines the format and structure of deliverables per category.
-- Render the body into artifacts using each category's template.
+- Apply the config's `categories` matrix (output-templates.md): which artifacts exist. **detail_md is the only draft.** canvas/gmail/vault wait for phase 5 remap of the approved snapshot — do not render them as new documents here.
 
 ## 5. Share routing
 
 - **Prerequisite: phase 6 canonical MD saved + user approval** (MD-first gate above). Do not execute this phase before approval.
+- **Source = `gate` `snapshot_path` only.** Do not Read the transcript, materials digests, glossary, contacts, or writing-principles. Facts are already in the approved MD.
+- **Remap, do not rewrite:** canvas = heading remap (keep 개조식); vault = copy snapshot body + vault_frontmatter (do not restack); gmail = same facts, 개조식 to 존댓말, greeting/closing from profile or one latest sent minutes mail (envelope only).
 - Branch by channel using the phase 4 category result: per-category `share_md` / `canvas` / `gmail`. Each one is a separate `gate → record → verify` cycle; an artifact is reportable only after `verify` returns 0.
 - Create canvas **exactly once** (repeated calls hit the `canvas_creation_failed` rate limit). Channel canvases do not support `canvases.edit` → `gate` returns `action: readback` once an id is recorded; if re-sharing is genuinely needed, that is a new canvas plus a blocking manual item to update the pointer in the canonical frontmatter.
 - If a tool is unavailable, fall back to file output (tooling.md):
@@ -74,7 +75,7 @@ Runs after the manifest, before drafting. Goal: the deck/sheet's **meaning** ent
 - The canonical copy is a **derivative like any other**: `gate` → write → `record` → `verify` (read the saved file back). Saved-but-unverified is not done.
 - Canonical path: `{{vault_path}}/{{vault_meetings_subpath}}/<YYYY-MM-DD> <category> <슬러그>.md`.
   - Slug is the agenda identifier based on `{{project_slug}}`.
-- Write frontmatter using the `vault_frontmatter` schema in config (date, category, participants, source, etc.). If the store does not support frontmatter, write body only.
+- Body is a copy of the approved snapshot, not a second outline. Write frontmatter using the `vault_frontmatter` schema in config (date, category, participants, source, etc.). If the store does not support frontmatter, write body only.
 - (Optional) Index with a search indexer (qmd, etc.) if available. If not, output "indexing skipped" and continue.
 
 ## 6.5 Topic sync (optional)
@@ -83,37 +84,12 @@ Runs after the manifest, before drafting. Goal: the deck/sheet's **meaning** ent
 - **Idempotency (re-run safety):** before appending, grep the topic's `## 타임라인` for this meeting's date + minutes link — if the line already exists, skip (append-only without this check duplicates evidence on every retry/re-run). One meeting = at most one timeline line per topic.
 - **Verify placement, not just presence.** "Appended" is not "appended in the right place": if the chronological heading is missed the line lands at end of file, after the hub sections, and nothing complains — the freshness scanner only checks that the minutes stem appears *somewhere* in the body. Observed 2026-07-29 on two topic notes. After writing, read the file back and confirm the new line sits under the chronological heading (`## 타임라인`, or whatever that note calls it) and in date order among its neighbours. Never leave a bare `관련: [[minutes]]` line after the block — the timeline entry already carries that link.
 
-## 7. Knowledge-graph update
+## 7. Knowledge-graph update (optional)
 
-Governed by `config.ontology`. **`required: true` makes this a normal step of every run** — the
-meeting is not finished until the graph carries its decisions, and the closing summary says which
-node was written. `required: false` (or no `ontology` key) skips the phase entirely.
-
-- **Write the decisions, not the prose.** One node for the meeting + one per entry in the approved
-  MD's `decisions:` frontmatter. Labels are the decision text, not a summary of it — the MD is the
-  source, so a decision that is not in the frontmatter does not get a node. Attendees, agenda bodies
-  and Action Items stay out unless the profile says otherwise: a graph that mirrors the minutes is
-  just a second, staler copy of them.
-- **Subject IRIs come from `config.ontology.entity_namespace`**, predicates from `namespace`. The
-  profile owns the local-part convention (see profile conventions); the engine does not name entities.
-- **Emit a `.ttl` file first, never inline triples.** Write it to the scratch/temp dir (never the
-  skill dir — the manifests rule in phase 3 applies here too), then `validate` before `load`. A
-  parse error at validate costs nothing; a half-loaded batch is a hand-repair.
-- **Invocation, in order** — `config.ontology.runner` is a command line, invoked as
-  `<runner> validate <file.ttl>` then `<runner> load <file.ttl>`, with `ONTOLOGY_DB` set to
-  `config.ontology.store` and `runner_env` exported. `runner: null` ⇒ obtain a trusted host
-  `turtle-parse/1` validation capability and preserve its hash-bound authenticated
-  `mm-ontology-validator-receipt/1`; never replace it with hand-rolled graph parsing.
-- **Loaded is not written.** After `load`, query the meeting IRI back and confirm the triples are
-  there — same read-back discipline as every other artifact. Report the before/after triple count.
-- **Degradation.** Runner missing, store path absent, or the capability unavailable ⇒ preserve the
-  `.ttl` candidate with its reason/path, but mark phase 7 `manual_required` and keep `close=7`.
-  A hash-bound authenticated `mm-ontology-validator-receipt/1` from `turtle-parse/1` is required
-  before it becomes a validated deferred-load artifact. This is not a skipped phase.
-- **Staleness check before you trust it.** The store may have no automated writer at all; a fresh
-  derived artifact elsewhere is not evidence that it is current. If a phase-3 context lookup wants
-  graph data, first confirm recency (most recent date in the store) and fall back to reading the
-  canonical minutes when there is a gap.
+- Default OFF (see SKILL.md). Do not run unless the user asked or ontology is in the approve plan.
+- When invoked: `python scripts/mm_ontology_runner.py validate <ttl>` then `load <ttl>` then `query <meeting IRI>`. `load` mints instance notes for IRIs in that TTL (`cli.py sync --ttl`, targeted — not a full-store rewrite). `query` is fail-close if the meeting entity note is missing.
+- Missing runner / `MM_ONTOLOGY_CLI` / `sync_to_vault.py` → **fail-close exit 2**. Do not skip. Do not ttl-only degrade.
+- Record decisions and relationships via this runner only — do not call libraries (pyoxigraph, etc.) directly.
 
 ## 종료 요약 (필수)
 

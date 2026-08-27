@@ -34,8 +34,7 @@ RUN_TRANSITIONS = {
     "open":       {"approved", "aborted"},
     "approved":   {"publishing", "superseded", "aborted"},
     "publishing": {"complete", "superseded", "aborted"},
-    "complete":   {"reopened"},
-    "reopened":   {"publishing", "superseded", "aborted"},
+    "complete":   set(),
     "superseded": set(),
     "aborted":    set(),
 }
@@ -56,8 +55,8 @@ HIGH_IMPACT = {"external_share_error", "data_loss", "manual_recovery"}
 
 # Bookkeeping the runner emits itself — never candidates for failure triage.
 PROTOCOL_EVENTS = {
-    "approve", "gate_pass", "create_claimed", "artifact_created", "artifact_verified",
-    "manual_added", "manual_done", "lease_refreshed", "close", "abort", "gc",
+    "approve", "gate_pass", "artifact_created", "artifact_verified",
+    "manual_added", "manual_done", "close", "abort", "gc",
 }
 
 
@@ -79,10 +78,6 @@ class HashMismatch(MmError):
 
 class ReadbackMismatch(MmError):
     exit_code = 4
-
-
-class ReadbackInputError(ReadbackMismatch):
-    """A read-back source could not be read, decoded, or trusted."""
 
 
 class LockHeld(MmError):
@@ -168,13 +163,6 @@ def plan_artifacts(cfg: dict, category: str, include_optional: bool = False) -> 
     declared matrix and the runtime plan cannot drift apart.
     """
     categories = cfg.get("categories") or {}
-    if not categories:
-        # An omitted --config loads as {}, so the category lookup is what fails
-        # and the old message blamed the category. Name the real cause.
-        raise ConfigError(
-            f"no categories loaded — config missing or empty, so {category!r} "
-            f"cannot be resolved; pass --config <path to config.yaml>"
-        )
     row = categories.get(category)
     if row is None:
         raise ConfigError(
@@ -185,11 +173,6 @@ def plan_artifacts(cfg: dict, category: str, include_optional: bool = False) -> 
         value = row.get(key)
         if value is True or (value == "optional" and include_optional):
             plan.append(key)
-    if (cfg.get("ontology") or {}).get("required") is True:
-        # A required graph update is not an optional post-processing side
-        # effect. Model it as a normal, exact-readback artifact so ``close``
-        # cannot report completion before graph load or TTL degradation exists.
-        plan.append("ontology")
     return plan
 
 
@@ -348,8 +331,6 @@ def new_manifest(doc_id: str, run_id: str, doc_path: str, category: str,
                 "rendered_sha256": None,
                 "readback_sha256": None,
                 "readback_mode": modes.get(key, "exact"),
-                "gate_token": None,
-                "create_intent": None,
                 "attempts": 0,
                 "waived": False,
                 "updated_at": iso(now),
