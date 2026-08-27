@@ -528,3 +528,88 @@ def test_gc_never_touches_a_live_run(capsys, doc, cfg):
     code, out = run(capsys, "gc", "--doc", doc, "--days", "0")
     assert code == 0 and out["pruned"] == []
     assert (state_dir(doc) / "runs" / run_id / "source.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# share-check / bot-DM canvas (2026-08-26)
+# ---------------------------------------------------------------------------
+
+def test_record_canvas_to_bot_dm_exits_8_when_config_has_slack_ids(capsys, doc, tmp_path):
+    conf = tmp_path / "config.yaml"
+    conf.write_text(
+        "categories:\n"
+        "  daily: {detail_md: true, share_md: false, canvas: true, gmail: true, vault: true}\n"
+        "channels:\n"
+        "  slack_user_id: U0ACMEUSER01\n"
+        "  slack_bot_dm_id: D0BOTDMCHAN1\n"
+        "  canvas: {editable: false, readback: semantic}\n"
+        "  gmail: {editable: true}\n"
+        "  vault: {editable: true}\n"
+        "runtime: {state_dir: .mm, lease_ttl_min: 30, retention_days: 90}\n",
+        encoding="utf-8",
+    )
+    lease = approve(capsys, doc, conf)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    rendered = doc.parent / "rendered_canvas.md"
+    rendered.write_bytes((DOC + "\n> mm:abc\n").encode("utf-8"))
+    code, out = run(
+        capsys, "record", "--doc", doc, "--lease", lease, "--config", conf,
+        "--artifact", "canvas", "--id", "F09", "--body-file", rendered,
+        "--dest", "D0BOTDMCHAN1", "--user-ids", "U0ACMEUSER01",
+    )
+    assert code == 8
+    assert manifest_of(doc)["artifacts"]["canvas"]["status"] != "created"
+
+
+def test_record_canvas_shared_to_user_passes(capsys, doc, tmp_path):
+    conf = tmp_path / "config.yaml"
+    conf.write_text(
+        "categories:\n"
+        "  daily: {detail_md: true, share_md: false, canvas: true, gmail: true, vault: true}\n"
+        "channels:\n"
+        "  slack_user_id: U0ACMEUSER01\n"
+        "  slack_bot_dm_id: D0BOTDMCHAN1\n"
+        "  canvas: {editable: false, readback: semantic}\n"
+        "  gmail: {editable: true}\n"
+        "  vault: {editable: true}\n"
+        "runtime: {state_dir: .mm, lease_ttl_min: 30, retention_days: 90}\n",
+        encoding="utf-8",
+    )
+    lease = approve(capsys, doc, conf)
+    run(capsys, "gate", "--doc", doc, "--lease", lease, "--artifact", "canvas")
+    rendered = doc.parent / "rendered_canvas.md"
+    rendered.write_bytes((DOC + "\n> mm:abc\n").encode("utf-8"))
+    code, _ = run(
+        capsys, "record", "--doc", doc, "--lease", lease, "--config", conf,
+        "--artifact", "canvas", "--id", "F09", "--body-file", rendered,
+        "--dest", "U0ACMEUSER01", "--user-ids", "U0ACMEUSER01",
+    )
+    assert code == 0
+    assert manifest_of(doc)["artifacts"]["canvas"]["external_id"] == "F09"
+
+
+def test_share_check_cli_blocks_unconfirmed_gmail(capsys, tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(
+        '{"gmail": {"attempted": true, "draft_id": "", "confirmed": false, '
+        '"claim_inbox": true, "eml_path": ""}}',
+        encoding="utf-8",
+    )
+    code, out = run(capsys, "share-check", "--plan", plan)
+    assert code == 8
+    assert out["ok"] is False
+    assert "gmail.unconfirmed_inbox_claim" in out["violations"]
+
+
+def test_share_check_cli_blocks_empty_dest_with_user_ids(capsys, tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(
+        '{"slack_user_id": "U0ACMEUSER01", "slack_bot_dm_id": "D0BOTDMCHAN1",'
+        ' "canvas": {"attempted": true, "canvas_id": "F09", "destination": "",'
+        ' "user_ids": ["U0ACMEUSER01"], "claim_success": true}}',
+        encoding="utf-8",
+    )
+    code, out = run(capsys, "share-check", "--plan", plan)
+    assert code == 8
+    assert out["ok"] is False
+    assert "canvas.missing_dest" in out["violations"]

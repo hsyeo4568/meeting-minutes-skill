@@ -25,7 +25,21 @@ paths:
 # body_mode = 본문 구성 방식 (engine writing-principles §11). chronological(default)=발생 순 안건 나열 /
 # axis=논의 축으로 재분류·재배치. 짧은 운영회의는 chronological, 심화·다자 논의는 axis.
 categories:
-  daily:    { detail_md: true,  share_md: true,  canvas: false, gmail: optional, vault: true, context_lookback: 3, body_mode: chronological }
+  daily:
+    detail_md: true
+    share_md: true
+    canvas: false
+    gmail: optional
+    vault: true
+    context_lookback: 3
+    body_mode: chronological
+    # Copy these keys into gitignored config.yaml. Share must NOT reread a gold sent mail for daily.
+    gmail_envelope:
+      subject_pattern: "[{{project_name}}] Daily minutes (M/D)"
+      to: ["<owner@example.com>"]
+      cc: ["<a@example.com>"]
+      greeting: "<Honorific>,\nHello. {{org}} {{me}}.\n"
+      closing: "Reply with corrections.\n{{me}}"
   regular:  { detail_md: false, share_md: false, canvas: true,  gmail: true,     vault: true, context_lookback: 3, body_mode: chronological }
   workshop: { detail_md: false, share_md: false, canvas: true,  gmail: optional, vault: true, context_lookback: 2, body_mode: axis }
 
@@ -48,7 +62,7 @@ channels:
   slack_channel_id: "<CXXXXXXXX>"    # {{slack_channel_id}} — minutes channel
   slack_user_id: "<UXXXXXXXX>"       # {{slack_user_id}} — your DM target for review canvases
   slack_url_base: "https://<workspace>.slack.com"  # {{slack_url_base}}
-  slack_bot_dm_id: ""                # {{slack_bot_dm_id}} — optional, bot DM channel
+  slack_bot_dm_id: ""                # {{slack_bot_dm_id}} — Slack *app* DM. NEVER a canvas destination (user cannot open those canvases)
   # Per-artifact publish traits (nested values; the flat keys above are Slack connection ids).
   # editable: false = the channel cannot be updated in place, so re-publishing leaves an orphan.
   # After a source edit, mm_run mints a BLOCKING manual item for every non-editable artifact
@@ -95,6 +109,11 @@ vault_frontmatter:
              attachments, recording, slack_canvas_id, issues_discussed,
              decisions, action_items, description, projects, tags]
 
-# Ontology IRI namespace (only used if tools.ontology is available)
+# Ontology IRI namespace (only used if tools.ontology is available).
+# Phase 7 default OFF. When invoked, runner must exist or the run fail-closes.
 ontology:
+  required: false
   namespace: "<https://your.vault/ontology#>"
+  runner: "<python> -X utf8 <ABS PATH TO SKILL>/scripts/mm_ontology_runner.py"
+  runner_env:
+    MM_ONTOLOGY_CLI: "<python> <ABS PATH TO VAULT>/_vault/scripts/ontology/cli.py"

@@ -139,8 +139,8 @@ Use `{{slack_channel_id}}` when posting to a channel.
 ## gmail — meeting-minutes mail draft
 
 > ⚠️ **Mail body form (subject, greeting, body depth, closing, mention notation) differs completely by org → profile is authoritative.**
-> Read `profiles/<active>/conventions.md` §채널 관례's Gmail template **exactly as-is** before following it.
-> If the profile has no Gmail template (or profile=null), use the generic minimal skeleton below + **mirror the most recent sent mail**.
+> Daily: `gmail_envelope` + `conventions-publish.md` (do not Read a gold sent mail). Regular: `conventions-publish.md` template.
+> If the profile has no Gmail template (or profile=null), use the generic skeleton. Regular may mirror latest 1 sent envelope only — do not rewrite the meeting body from that mail.
 
 ```
 제목: [{{project_name}}] <category> 회의록 공유드립니다. (라벨, M/D)
@@ -149,7 +149,7 @@ Use `{{slack_channel_id}}` when posting to a channel.
 인사(고정 문구는 profile) → 회의록 본문 → Action Items(조직별) → 맺음(고정 문구는 profile)
 ```
 
-- **Meeting-minutes mail = the approved snapshot in 존댓말**, not a second draft from the transcript. Greeting/closing: profile template, or Read only the latest 1 sent minutes mail and mirror the envelope — do not rewrite the meeting body from that mail. A summary-only or "Canvas link only" single line is prohibited. Attachments (reports) are announced in the greeting only.
+- **Meeting-minutes mail = the approved snapshot in 존댓말**, not a second draft from the transcript. Daily greeting/closing/to/cc/subject from `gmail_envelope` / `conventions-publish.md` — skip gold-mail reread. Regular: profile template, or latest 1 sent for envelope only — do not rewrite the meeting body from that mail. A summary-only or "Canvas link only" single line is prohibited. Attachments (reports) are announced in the greeting only.
 - Tables prohibited; use lists/checklists. To/CC filled from profile contacts mapping. `create_draft` accepts plain email only (the `이름 <메일>` format is not supported).
 - Attendees not found in contacts must be explicitly printed in the To field as `[미확인: 이름]` placeholder — no guessing or silent omission (the user fills them in during draft review).
 

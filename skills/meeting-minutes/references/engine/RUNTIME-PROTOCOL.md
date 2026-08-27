@@ -20,6 +20,7 @@ missing runner is never a reason to fail the run.
 | I6 | A source edit invalidates every derivative of the old hash. | run → `superseded`, artifacts → `stale`, blocking manual items minted |
 | I7 | Two agents cannot publish the same doc at once. | lease + compare-and-swap on the doc index |
 | I8 | Every failure is logged; only qualifying failures reach the canonical store. | `runs.jsonl` always; `promote-check` gates promotion |
+| I9 | A canvas in `{{slack_bot_dm_id}}`, or a Gmail 임시보관함 claim without a confirmed draft id, is not done. | `share-check` exit 8; `record --artifact canvas` dest check |
 
 Fail-closed: any state the runner cannot prove is **not done**, and the resolution is
 "stop and ask", never "create it again".
@@ -57,6 +58,7 @@ Out-of-band commands:
 | `abort --doc P --lease L --reason "…"` | user cancelled |
 | `promote-check --doc P` | decides whether a failure deserves a knowledge note; prints a ready-to-paste stub |
 | `gc [--days N] [--dry-run]` | prune payloads of terminal runs |
+| `share-check --plan P.json [--config config.yaml]` | no lease. Validates canvas dest / Gmail draft id. Exit 8 = do not claim success |
 
 ## Exit codes
 
@@ -69,6 +71,7 @@ Out-of-band commands:
 | 5 | lock held by another owner | another session is publishing this doc. Stop; `status` still works |
 | 6 | illegal transition | the step is out of order (e.g. `record` without a `gate`) |
 | 7 | completeness check failed | `close` found unverified artifacts or open blocking manual items |
+| 8 | **share blocked** | dest missing, dest is `{{slack_bot_dm_id}}`, `user_ids` omitted, or Gmail claimed without a confirmed draft id. Do **not** Recreate. Fix dest (`destination: {{slack_user_id}}`) and dest-check again, or write `.eml`. No second `create_canvas` after approve. Do not report 완료 |
 
 ## Rules for the agent
 
@@ -76,7 +79,7 @@ Out-of-band commands:
    context, not the file you re-read yourself. The snapshot is immutable; your context is not.
    **Remap form only** (canvas headings, vault frontmatter, gmail 존댓말). Do not reload
    transcript, materials, glossary, contacts, or writing-principles at share time.
-2. **Created is not done.** Report an artifact as complete only after `verify` returns 0.
+2. **Created is not done.** Dest share-check Exit 8 before `create_canvas`. Show Canvas URL only after dest-check 0, one create, and `canvas_id`. Then vault. Do not say 완료 until `verify` returns 0.
    **`--readback-file` must hold the bytes the tool gave back** — fetch the artifact (`list_drafts`,
    `read_canvas`, re-read the file) and feed *that*. Deriving the read-back from the body you sent
    makes `verify` compare the sent text with a copy of itself: it passes every time and proves

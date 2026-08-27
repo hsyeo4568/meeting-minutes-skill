@@ -5,6 +5,34 @@
 
 ---
 
+## [1.1.2] — 2026-08-27
+
+**요약** — 공유 전에 목적지를 확인하고, 캔버스는 한 번만 만든 뒤 사용자가 열 수 있을 때 URL을 내고, 그다음 볼트에 저장한다
+
+### 추가
+
+- 공유 전 목적지 확인 (`share-check`). 목적지가 비어 있으면 Exit 8로 막음
+- `tests/test_share_guard.py` — 목적지 가드 회귀
+
+### 변경
+
+- **공유 순서** — 목적지 확인 → Path로 캔버스 1회 생성 → 열림 확인 후 URL → 그다음 볼트
+- 승인 후 캔버스를 다시 만들지 않음
+
+### 고침
+
+- 목적지 없는 공유를 성공으로 치던 경로를 Exit 8로 차단
+
+### 설치 · 업데이트
+
+- 재설치 금지. 엔진만 교체:
+
+  ```bash
+  python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
+  ```
+
+---
+
 ## [1.1.1] — 2026-08-27
 
 **요약** — ① 부트 라우터가 vault·ontology/phase 7을 항상 읽지 않음, ② canvas/gmail/vault 공유는 승인 스냅샷만 (녹취 재읽기 없음), ③ register-gate 예시에서 머신 경로 제거
