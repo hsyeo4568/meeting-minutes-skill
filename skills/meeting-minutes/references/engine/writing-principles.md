@@ -1,6 +1,6 @@
 # Meeting Minutes Writing Principles (generic engine)
 
-> When SKILL/profile is Hemingway-first, this file is not a parent compose pass (Hemingway uses conventions.md).
+> This file is the compose pass for the work-folder draft. Profile `conventions.md` / `conventions-draft.md` specialize org voice.
 > Methodology applied when composing meeting minutes body content. All proper nouns, paths, and concrete values use placeholders or neutral examples.
 > Style rules branch on a locale condition (`{{business_style}}`) — culture-specific writing conventions are not imposed as universal rules.
 > **This file covers only universal writing hygiene, independent of meeting type.** Meeting *form* (section order, categories, Action grouping, titles) belongs to profile `structure.md` (see §Section Order below). §3/§5/§6/§9 lean on *operational-meeting examples* — if they don't fit the meeting type, follow structure.md.

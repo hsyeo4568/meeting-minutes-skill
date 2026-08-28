@@ -52,9 +52,12 @@ def test_after_approve_follow_section_4():
     assert "post-create check = `canvas_id` only" not in share
 
 
-def test_draft_is_hemingway_first_not_engine_then_rewrite():
+def test_draft_is_one_file_not_engine_then_rewrite():
     draft = SKILL.split("## 1.")[1].split("## 2.")[0]
-    assert "do **not** write a full engine minutes then rewrite" in draft
-    assert "Hemingway-first" in SKILL or "Hemingway first" in SKILL or "Hemingway writes the only body" in draft
-    assert "No required sibling .hemingway.md" in draft
+    assert "Do **not** write a full engine minutes then rewrite" in draft
+    assert "Do **not** Task a named writer subagent" in draft
+    assert "One file only" in draft
     assert "conventions-draft.md" in draft
+    assert "writing-principles.md" in draft
+    assert "Task `hemingway`" not in SKILL
+    assert "Hemingway-first" not in SKILL

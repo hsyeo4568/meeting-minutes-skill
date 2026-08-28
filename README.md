@@ -32,9 +32,9 @@
 - 폴더 → 덱·시트 포함 읽기, 분량 한도 초과 시 질문
 
 - 작업 폴더 첫 회의록 → 파일 하나
-- Hemingway 작성기 있으면 → 그 본문이 곧 그 파일
-- 없으면 → 같은 표기 규칙 1회 읽고 그 파일 하나 작성
-- 엔진 초안 후 수정 단계 없음, `.hemingway.md` 형제 파일 없음
+- 세션 에이전트 → profile 표기 규칙 + writing-principles로 1회 작성
+- 초안 후 재작성 단계 없음
+- 형제 재작성 파일 없음
 
 - 직전 회의 연계 → 바로 이전 회의록의 `## 이전 회의 연계` + `## Action Items`만
 - 상한 = 회의 종류별 개수, 달력 아님
@@ -137,8 +137,8 @@ Copy-Item -Recurse skills\stt-transcript-fix "$HOME\.claude\skills\"
 ### 경로 C: 설치 없이 claude.ai에서 쓰는 경우
 
 - 파일·설치 없이 claude.ai 웹 채팅(무료)에서 사용 가능
-- Hemingway 없음, 작업 폴더 파일 없음
-- [`PROMPT-ONLY.md`](skills/meeting-minutes/PROMPT-ONLY.md) 작성 규칙만 적용
+- [`PROMPT-ONLY.md`](skills/meeting-minutes/PROMPT-ONLY.md)만
+- 작업 폴더 파일 없음
 - 전송 전 `내 이름`·`내 소속`을 본인 값으로 치환 필요
 - 이전 회의록 → 선택 붙여넣기
 - 결과 → 회의록 마크다운 하나
@@ -161,7 +161,7 @@ Copy-Item -Recurse skills\stt-transcript-fix "$HOME\.claude\skills\"
 - 그 파일 위치 → [`profiles/example-acme/`](skills/meeting-minutes/profiles/example-acme/)
 - [`profiles/_template/`](skills/meeting-minutes/profiles/_template/) → `conventions.md`만
 
-- 시계열 `body_mode`(데일리, 정기, 팀이 넣은 경우 리포트) → Hemingway는 `conventions-draft.md`만 읽음
+- 시계열 `body_mode`(데일리, 정기, 팀이 넣은 경우 리포트) → `conventions-draft.md` 있으면 그것만, 없으면 `conventions.md`. 둘 다 읽지 않음
 - 축(워크샵, 외부, 내부) → `conventions.md` 전문
 - `config.example.yaml` → 데일리·정기 = 시계열, 워크샵 = 축
 - 회의 종류 추가 → 온보딩
