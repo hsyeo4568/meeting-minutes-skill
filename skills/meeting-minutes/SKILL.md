@@ -6,7 +6,7 @@ argument-hint: "[source-file | folder]"
 
 # meeting-minutes (generic engine)
 
-Config-driven engine. Proper nouns live in `config.yaml` + `profiles/<active>/`, not here.
+Config-driven. Proper nouns live in `config.yaml` + `profiles/<active>/`, not here.
 
 ```
 /meeting-minutes [source-file]
@@ -20,14 +20,16 @@ Config-driven engine. Proper nouns live in `config.yaml` + `profiles/<active>/`,
 
 1. **config.yaml** at skill root. Absent → `ONBOARDING.md` interview. Keys: `identity`, `paths`, `project.profile`, `categories`, `channels`, `tools`, `locale`.
 2. **Category first.** Sample transcript head (~50 lines) + filename — do not full-read materials to classify. Emit only that row's flags (detail_md/share_md/canvas/gmail/vault).
-3. **Profile (narrow):** `profiles/<name>/structure.md` for category signals only. If `project.profile` is null, placeholders.
+3. **Profile (narrow):** `profiles/<name>/structure.md` — Read only `## 회의 카테고리` through `### 판별 신호` (stop before `## 카테고리별 섹션 순서`). If `project.profile` is null, placeholders.
 4. **Tools:** detect only what the category row needs (`slack_mcp` / `gmail_mcp`). **Do not detect `ontology` or `qmd` at boot. Do not run phase 7.** Missing tool → file fallback. Never fail on a missing tool.
 
-## 1. Draft — writing rules then, not before
+## 1. Draft — Hemingway first
 
-`body_mode` from config (`chronological` | `axis`). Load `references/engine/writing-principles.md` **only when drafting**. Load profile `conventions.md` (voice / titles / lookback) + `domain-glossary.md` + `contacts.md` at draft/cross-check. Hemingway reads `conventions.md` only — not `conventions-publish.md`. `FEEDBACK.md` is archive — do not load.
+`body_mode` from config (`chronological` | `axis`). Hemingway-first for **all categories** (daily/regular/report/workshop/external/verification/internal). Do **not** load `writing-principles.md` before Task `hemingway`. Do **not** load `conventions.md` at draft start. Chronological Hemingway reads `conventions-draft.md` only (do not Read `conventions.md`). Axis (workshop/external/internal) reads full `conventions.md` (past `## 축·워크샵·외부·발행`). Hemingway writes the only body from that file. Load `writing-principles.md` **only if Hemingway is unavailable**. Do **not** load `domain-glossary.md` or `contacts.md` until cross-check (after a body exists). Not `conventions-publish.md`.
 
-Do **not** reread the vault. Context-link = immediately previous meeting + lookback Action/link sections only (`pipeline.md` phase 3). Missing previous → `직전 회의록 미탐지 — 수동 확인 필요`.
+Do **not** reread the vault. Lookback: immediately previous `## 이전 회의 연계` + `## Action Items` only — not the full previous vault note (`pipeline.md` phase 3). Missing previous → `직전 회의록 미탐지 — 수동 확인 필요`.
+
+After boot/classify/lookback/materials: do **not** write a full engine minutes then rewrite. First work-folder MD = Hemingway voice, filename `YYYY-MM-DD <category> <slug>.md`. No required sibling `.hemingway.md`. Task `hemingway` payload = lookback excerpt (already read) + paths (transcript if stamp=1, materials, mail, chronological=`conventions-draft.md` / axis=`conventions.md`). Do **not** put a structured transcript-facts / agenda outline in the Task prompt — that is a parent compose pass. Hemingway returns body; parent Write once. If Hemingway unavailable, parent writes that same single file in conventions voice. Do not produce two files. Hemingway is not a share command. One-turn ban = draft only (no canvas/gmail in the draft turn).
 
 ## 2. Pipeline — current phase heading only
 
@@ -37,7 +39,7 @@ After approve, do **not** open `pipeline.md` or `RUNTIME-PROTOCOL.md`. Follow §
 - **6.5 topic sync:** only if `config.paths.topics_moc` exists.
 - **7 knowledge-graph / ontology: default OFF.** Run only if the user asked. Do not load ontology otherwise. When run, missing runner is fail-close (exit 2), not skip; `load` mints entity notes via targeted sync.
 
-**MD-first (required, all categories):** draft MD in the work folder → user review/edits → approval → `python scripts/mm_run.py approve` (immutable snapshot + lease) → phase 5 dest share-check 0 → create_canvas once → canvas_id → URL → phase 6 vault → gmail. Every artifact: `gate → record → verify`; **only `verify` makes it done**; body solely from `snapshot_path`. Blocking exits: 3 = MD changed after approval, 4 = read-back mismatch, 5 = lease held, 7 = close with unverified artifacts. **One-turn ban is draft only** — never mix draft+share in one turn. After approve, Canvas then vault+Gmail may run in one breath (gmail stays draft-only). Never Canvas/Gmail before approve. **Create canvas once — ban recrate after approve.** No Python/PyYAML → prose fallback, never a failed run.
+**MD-first (required, all categories):** draft MD in the work folder → user review/edits → approval → `python scripts/mm_run.py approve` (immutable snapshot + lease) → phase 5 dest share-check 0 → create_canvas once → canvas_id → URL → phase 6 vault → gmail. Every artifact: `gate → record → verify`; **only `verify` makes it done**; body solely from `snapshot_path`. Blocking exits: 3 = MD changed after approval, 4 = read-back mismatch, 5 = lease held, 7 = close with unverified artifacts. **One-turn ban is draft only** — never mix draft+share in one turn. No Python/PyYAML → prose fallback, never a failed run.
 
 ### Register gate (정기 only)
 
@@ -62,11 +64,11 @@ Apply corrections before sharing. For mail, also `prose-gate` (은유/경구/드
 
 ## 4. Share (phase 5) — after approve only
 
-MD-first one-turn ban is **draft only**. After approve, Canvas then vault+Gmail may run in one breath. Never mix draft+share. Never Canvas/Gmail before approve. **Create canvas once. Ban recrate after approve.**
-Phase 5 **remaps** `gate`'s `snapshot_path` only. Do not Read the transcript, materials, glossary, contacts, `writing-principles.md`, or a gold sent mail.
-- canvas: heading remap to a work-folder `.md`. `create_canvas` is title+content only (`dm_user_id` is gone; `user_ids` is record-only). Pass `content` from that Path. Path.read_text still wraps in tool JSON (dest unbound; do not patch canvas.ts). Never retype Korean.
-**Order after approve:** (1) dest `share-check` (`destination` = `{{slack_user_id}}`, not bot DM, not `user_ids`-only) Exit 8 **before** any `create_canvas` (2) snapshot Path `create_canvas` once (3) `canvas_id` then live `read_canvas` — user must open. Plan dest is not create dest. 권한 없음 → stop, no Recreate, no URL, no 완료 (4) URL only if `openable` (5) **then** vault. Vault must not delay the URL.
-- gmail: same facts, 개조식→존댓말. Daily envelope from `gmail_envelope` / `conventions-publish.md` — do not reread a gold sent mail. Draft-only.
+MD-first one-turn ban is **draft only**. After approve, Canvas then vault+Gmail may run in one breath. Never mix draft+share. Never Canvas/Gmail before approve. **Create canvas once. Ban recrate after approve.** Hemingway is draft-phase only — not this command.
+Phase 5 **remaps** `gate`'s `snapshot_path` only. `python scripts/mm_run.py render-share --doc <approved.md> --config config.yaml` writes `rendered/canvas.md` + `rendered/gmail.md` (mechanical heading remap). Ban LLM remap of headings. Do not Read the transcript, materials, glossary, contacts, gold mail, `writing-principles.md`.
+- canvas: `create_canvas` from `canvas_path` (`Path.read_text`) once. title+content only (`dm_user_id` is gone; `user_ids` is record-only). Path.read_text still wraps in tool JSON (dest unbound; do not patch canvas.ts). Never retype Korean.
+**Order after approve:** (1) `render-share` (2) dest `share-check` (`destination` = `{{slack_user_id}}`, not bot DM, not `user_ids`-only) Exit 8 **before** any `create_canvas` (3) `canvas_path` Path `create_canvas` once (4) `canvas_id` then live `read_canvas` — user must open. Plan dest is not create dest. 권한 없음 → stop, no Recreate, no URL, no 완료 (5) URL only if `openable` (6) **then** vault. Vault must not delay the URL.
+- gmail: from `gmail.md` (honorific envelope already rendered). Draft-only. Do not rewrite 개조식→존댓말.
 **Harness:** dest `python scripts/mm_run.py share-check --plan <plan.json> --config config.yaml` **before create**. After create: live `read_canvas` then share-check with `canvas_id` + `openable` **before URL**. Exit 8 = blocked (bot DM / missing dest / not openable / missing `user_ids` / unconfirmed draft). Never dest `{{slack_bot_dm_id}}`. dest = `{{slack_user_id}}` (never empty, never `user_ids`-only). No `create_canvas` on Exit 8. 권한 없음 after one create = stop, not Recreate, not URL-as-success. Ban recrate after approve. Do not say 완료.
 Do not load `RUNTIME-PROTOCOL.md` or `tooling.md` at share unless share-check fails.
 
@@ -76,9 +78,9 @@ No `config.yaml` → `ONBOARDING.md`. `SETUP.md` is install-only. `python script
 
 ## References (load only at the named phase)
 
-- `writing-principles.md` — draft
+- `writing-principles.md` — fallback only
 - `pipeline.md` — current phase heading (draft only; not after approve)
 - `CONTRACT.md` — interface, on demand
 - `RUNTIME-PROTOCOL.md` / `tooling.md` — only if share-check fails
-- `output-templates.md` — share form remap (not a re-draft)
-- profile `structure.md` — classify; `conventions.md` — draft/Hemingway; `conventions-publish.md` — share envelope; `domain-glossary` / `contacts` — draft
+- `output-templates.md` — not at share (`render-share` writes canvas/gmail)
+- profile `structure.md` — classify (`## 회의 카테고리`–`### 판별 신호` only); `conventions-draft.md` — chronological Hemingway only; `conventions.md` — axis + parent fallback; `conventions-publish.md` — not at share; `domain-glossary` / `contacts` — cross-check

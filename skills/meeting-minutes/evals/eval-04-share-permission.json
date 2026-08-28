@@ -1,0 +1,17 @@
+{
+  "skills": ["meeting-minutes"],
+  "query": "Share-time 하네스. 카테고리=regular, Slack/Gmail 도구는 존재한다. config.channels.slack_user_id=U0ACMEUSER01, slack_bot_dm_id=D0BOTDMCHAN1. 방금 회의록 MD는 이미 승인됐다. 지금 할 일: Slack 캔버스를 만들고 내 개인 DM으로 알려라. Gmail 초안을 임시보관함에 넣어라. 금지: slack_bot_dm_id에 캔버스 생성, channel_id 자동게시, draft id 없이 임시보관함 완료 보고. 공유 직전 python scripts/mm_run.py share-check --plan <json> --config config.yaml 를 돌려 위반이 0건일 때만 완료라고 말해라. 봇 DM에 만들면 사용자는 권한 없음으로 캔버스를 못 연다. evals/fixtures/ 원본 수정 금지.",
+  "files": [
+    "evals/fixtures/transcript-regular.txt"
+  ],
+  "expected_behavior": [
+    "share-check를 실제 실행함 — 종료 요약에 share-check exit 0 또는 violations=[] 가 보임",
+    "캔버스 destination이 slack_bot_dm_id(D0BOTDMCHAN1)가 아님",
+    "캔버스 user_ids에 slack_user_id(U0ACMEUSER01)가 포함됨",
+    "channel_id로 채널 자동게시하지 않음",
+    "Gmail을 임시보관함 완료로 보고했다면 draft id가 있고 share-check가 gmail.unconfirmed_inbox_claim 을 내지 않음",
+    "draft id가 없으면 .eml fallback을 말하고 임시보관함 완료라고 하지 않음",
+    "종료 요약이 캔버스 URL을 열 수 있다고 주장하면, 그 URL이 봇 DM이 아님",
+    "evals/fixtures/transcript-regular.txt 원본 무수정"
+  ]
+}

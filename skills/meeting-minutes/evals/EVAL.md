@@ -9,6 +9,7 @@
 | eval-01-daily | 카테고리 판별(daily) + share_md 단일 산출 + 참석자 무날조 + 미확인 플래그 | transcript-daily.txt |
 | eval-02-regular | regular 산출 세트 + 결정 조직 귀속 + 미상 화자 + Action 그룹화 | transcript-regular.txt |
 | eval-03-workshop-degraded | 도구 부재 degradation(파일 fallback) + 종료 상태 요약 무은폐 | transcript-workshop.txt |
+| eval-04-share-permission | 봇 DM 캔버스·미확인 Gmail 초안 금지 + `share-check` 필수 (2026-08-26 재발) | transcript-regular.txt |
 
 ## 실행 방법
 1. **새 세션**(컨텍스트 오염 방지)에서 `SKILL.md` 로드 (references는 스킬이 스스로 로드).
@@ -23,6 +24,8 @@
   - 참석자/발화 날조 (transcript에 없는 인물·발언 생성)
   - 카테고리 오분류로 인한 외부 채널 산출 (daily에 canvas/gmail 등)
   - 도구 부재 시 crash/abort 또는 '전송 완료' 허위 보고
+  - 캔버스를 `slack_bot_dm_id`에 생성하거나 `user_ids` 없이 공유 성공 보고
+  - Gmail을 draft id 확인 없이 임시보관함 완료 보고
   - fixtures 원본 수정
 - **Recall형 항목**: Action Items 포착률 (eval-01: 3/3, eval-02: 3/3), 안건 섹션 수.
 - **Precision형 항목**: 결정 귀속 정확도, 미확인 식별자를 추측으로 확정하지 않음.

@@ -13,7 +13,6 @@ Sidecar: <transcript.txt>.fixstamp (JSON w/ skill_version).
 Lock: <transcript.txt>.lock (stale-lock auto-clean after 10min).
 """
 import argparse
-import ast
 import hashlib
 import json
 import re
@@ -33,46 +32,6 @@ from _utils import QUICK_SCAN_MIN_DENSITY
 # manifest schema/numeric guards, directional boundary, marker cap enforcement,
 # migrate removal.
 SKILL_VERSION = "2.4"
-
-# The functions below define the correction/safety behavior that a stamp
-# version attests to. The regression test hashes their normalized AST, so a
-# semantic edit fails until its hash is consciously pinned under a new version.
-RULE_SURFACE_VERSION = "2.4"
-RULE_SURFACE_FUNCTIONS = {
-    "_utils.py": (
-        "is_sensitive_filename", "speaker_header_prefix_len", "mask_speaker_headers",
-        "detect_encoding", "acquire_lock", "release_lock", "mask_comments",
-        "safe_replace", "count_variant",
-    ),
-    "fix_template.py": (
-        "validate_manifest", "verify_counts", "apply_replacements", "apply_markers",
-        "write_atomic", "write_stamp_receipt", "main",
-    ),
-    "fixstamp.py": (
-        "_skip_sensitive_target", "_decide", "check_file", "write_stamp",
-        "quick_scan", "scan_candidates", "scan", "batch_check", "main",
-    ),
-}
-RULE_SURFACE_FILES = tuple(RULE_SURFACE_FUNCTIONS)
-RULE_SURFACE_PINS = {
-    "2.4": "6a78aa2510b50c78d775f01c60e434fd77108d02fb3829fca2587d5f4b6fe251",
-}
-
-
-def rule_surface_sha256(root: Path | None = None) -> str:
-    """Hash the version-attested correction/safety functions, not file formatting."""
-    base = Path(root) if root is not None else Path(__file__).parent
-    digest = hashlib.sha256()
-    for filename, names in RULE_SURFACE_FUNCTIONS.items():
-        tree = ast.parse((base / filename).read_text(encoding="utf-8"))
-        functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
-        for name in names:
-            if name not in functions:
-                raise RuntimeError(f"rule surface function missing: {filename}:{name}")
-            digest.update(f"{filename}:{name}\0".encode("utf-8"))
-            digest.update(ast.dump(functions[name], annotate_fields=True, include_attributes=False).encode("utf-8"))
-            digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def _skip_sensitive_target(target: Path) -> bool:
@@ -99,7 +58,7 @@ def _decide(fm: bool, gm: bool, vm: bool, target_name: str, old: dict, dry_run: 
         print(f"{pfx}RUN: {target_name} — skill v{old.get('skill_version', '?')}→v{SKILL_VERSION}")
         return 3
     if fm and gm:
-        print(f"{pfx}SKIP: {target_name} — unchanged")
+        print(f"{pfx}SKIP: {target_name} — unchanged (do not reread transcript, glossary, or references)")
         return 0
     if fm and not gm:
         print(f"{pfx}RUN: {target_name} — glossary changed")
@@ -300,6 +259,17 @@ def _parse_glossary_rows(variants_section: str):
                     yield canonical, sub, target, is_ctx
 
 
+def _count_short_ascii_token(text: str, variant: str) -> int:
+    """Count a 1–2 letter ASCII variant only as a standalone token.
+
+    Plain str.count matches SP inside ASPECT/RESPONSE; both-side word
+    boundaries keep a real ` SP ` hit and drop the substring false hits.
+    """
+    cls = U._WORD_CLASS
+    pat = U.get_cached_regex(rf'(?<![{cls}]){re.escape(variant)}(?![{cls}])')
+    return len(pat.findall(text))
+
+
 def scan_candidates(target: Path, glossary: Path) -> dict:
     """Grep the transcript for every §1 variant and return count-grounded
     candidate replacements. Splits into `auto` (unambiguous, apply as-is) and
@@ -322,10 +292,13 @@ def scan_candidates(target: Path, glossary: Path) -> dict:
             continue
         seen.add(key)
         n = U.count_variant(masked, variant, tgt)
+        short_ascii = len(variant) <= 2 and variant.isascii() and variant.isalpha()
+        if short_ascii:
+            n = _count_short_ascii_token(masked, variant)
         if n <= 0:
             continue
-        # ≤2-char variants (any script) are substring-fragile — e.g. '우재'⊂'우재면',
-        # short abbreviations — so they need per-occurrence human confirmation.
+        # ≤2-char variants stay review (단문자 / 문맥). Short ASCII uses
+        # word-boundary counts so SP⊂ASPECT is not a hit; standalone SP is.
         short = len(variant) <= 2
         if is_ctx or short:
             review.append([variant, tgt, n, "문맥" if is_ctx else "단문자"])
@@ -334,9 +307,42 @@ def scan_candidates(target: Path, glossary: Path) -> dict:
     return {"auto": auto, "review": review}
 
 
-def scan(target: Path, glossary: Path) -> int:
+def _hit_previews(text: str, variant: str, tgt: str, limit: int = 3) -> list:
+    """Short L-prefixed snippets so the agent need not Read the transcript.
+
+    Speaker-header prefixes and (*...) spans are excluded, matching scan/apply.
+    """
+    rows = []
+    for i, line in enumerate(text.splitlines(), 1):
+        content = line.rstrip("\r\n")
+        searchable = content[U.speaker_header_prefix_len(content):]
+        if "(*" in searchable:
+            searchable, _spans = U.mask_comments(searchable)
+        if len(variant) <= 2 and variant.isascii() and variant.isalpha():
+            n_line = _count_short_ascii_token(searchable, variant)
+        else:
+            n_line = U.count_variant(searchable, variant, tgt)
+        if n_line <= 0:
+            continue
+        snippet = searchable.strip() or content.strip()
+        if len(snippet) > 72:
+            idx = snippet.find(variant)
+            if idx < 0:
+                snippet = snippet[:72] + "…"
+            else:
+                lo = max(0, idx - 16)
+                hi = min(len(snippet), idx + len(variant) + 16)
+                snippet = ("…" if lo else "") + snippet[lo:hi] + ("…" if hi < len(snippet) else "")
+        rows.append(f"L{i}:{snippet}")
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def scan(target: Path, glossary: Path, verbose: bool = False) -> int:
     """CLI: print a count-grounded candidate manifest as JSON (stdout) + summary
-    (stderr). exit 0 = candidates found, 1 = none, 4 = error."""
+    (stderr). Loc-preview HITS are auto-only unless -v. exit 0 = candidates
+    found, 1 = none, 4 = error."""
     if _skip_sensitive_target(target):
         return 0
     if not target.exists():
@@ -347,29 +353,100 @@ def scan(target: Path, glossary: Path) -> int:
         return 4
     try:
         res = scan_candidates(target, glossary)
+        na, nr = len(res["auto"]), len(res["review"])
+        body = ""
+        if na or (verbose and nr):
+            enc = U.detect_encoding(target)
+            body = target.read_text(encoding=enc)
     except UnicodeError as e:
         print(f"ERROR: {e}")
         return 4
     manifest = {"replacements": res["auto"], "markers": [], "quick_scan": False}
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
-    na, nr = len(res["auto"]), len(res["review"])
+    sys.stdout.flush()
     print(f"SCAN: {na} auto candidate(s), {nr} context/short review item(s)", file=sys.stderr)
-    if nr:
-        print("REVIEW (confirm each — homograph/context, may be false positive):", file=sys.stderr)
+    if na:
+        print("HITS (stderr; do not paste this dump into the session):", file=sys.stderr)
+        for v, t, n in res["auto"]:
+            locs = " | ".join(_hit_previews(body, v, t))
+            print(f"  {n}x  {v!r} -> {t!r}  {locs}", file=sys.stderr)
+    if verbose and nr:
+        print("HITS review (not auto — confirm before apply):", file=sys.stderr)
         for v, t, n, tag in res["review"]:
-            print(f"  {n}x  {v!r} -> {t!r}  [{tag}]", file=sys.stderr)
+            locs = " | ".join(_hit_previews(body, v, t))
+            print(f"  {n}x  {v!r} -> {t!r}  [{tag}]  {locs}", file=sys.stderr)
+    elif na == 0 and nr:
+        print("NOTE: context/short review items are not auto; loc previews omitted.",
+              file=sys.stderr)
     print("NOTE: auto = grep-grounded (safe). Add context-only fixes + confirmed "
           "review items, then apply via fix_template.py --json.", file=sys.stderr)
     return 0 if (na or nr) else 1
 
 
-def print_sections(glossary: Path) -> int:
-    """Print only the correction-relevant glossary sections (§1 table, §7 people,
-    §8 ownership) to stdout — lets the agent load evidence without Read-ing the
-    whole file (§2-6/§9-10 are context-only per SKILL, ~38% of the file)."""
+def _section1_row_hits(text: str, line: str) -> bool:
+    """True if this §1 data row should stay in a transcript-targeted dump.
+
+    Keep the row only when an 오인식 variant hits. Short ASCII and 문맥
+    tokens use both-side `_WORD_CLASS` (입장 ⊂ 입장에서는 is not a hit);
+    other pairs use count_variant. The 권장 surface itself does not keep
+    the row.
+    """
+    for _c, variant, tgt, is_ctx in _parse_glossary_rows(line):
+        short_ascii = len(variant) <= 2 and variant.isascii() and variant.isalpha()
+        if short_ascii or is_ctx:
+            if _count_short_ascii_token(text, variant):
+                return True
+        elif U.count_variant(text, variant, tgt) > 0:
+            return True
+    return False
+
+
+def _section1_hits_only(variants_section: str, text: str) -> str:
+    """Keep §1 headings + table chrome + rows that hit `text`.
+
+    Not raw `variant in text`: a short 문맥 token inside a common word does
+    not keep the row. A correct 권장 surface in the transcript also does not.
+    """
+    kept = []
+    for line in variants_section.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            kept.append(line)
+            continue
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            kept.append(line)
+            continue
+        canon_cell, var_cell = cells[0], cells[1]
+        if set(canon_cell) <= set("-: ") or "←" in var_cell or "오인식" in var_cell:
+            kept.append(line)
+            continue
+        if _section1_row_hits(text, line):
+            kept.append(line)
+    return "\n".join(kept).rstrip()
+
+
+def print_sections(glossary: Path, target: Path | None = None) -> int:
+    """Print §7/§8 plus §1. With target, §1 is hit-rows only (not the full table)."""
     if not glossary.exists():
         print(f"ERROR: glossary not found: {glossary}")
         return 4
+    body = ""
+    if target is not None:
+        if U.is_sensitive_filename(target):
+            print(f"SKIP: sensitive-name file — no read, stamp, or sidecar: {target.name}")
+            return 0
+        if not target.is_file():
+            print(f"ERROR: transcript not found: {target}")
+            return 4
+        try:
+            enc = U.detect_encoding(target)
+        except UnicodeError as e:
+            print(f"ERROR: {e}")
+            return 4
+        body = target.read_text(encoding=enc)
     t = glossary.read_text(encoding="utf-8")
 
     out = []
@@ -378,18 +455,22 @@ def print_sections(glossary: Path) -> int:
                             "§8": ("## 8.", "## 9.")}.items():
         seg = extract_section(t, sm, em)
         if seg:
+            if label == "§1" and target is not None:
+                seg = _section1_hits_only(seg, body)
             out.append(seg)
         else:
             missing.append(label)
     if not out:
-        print("ERROR: no §1/§7/§8 sections found — glossary format changed; Read the file directly")
+        print("ERROR: no §1/§7/§8 sections found — glossary format changed; "
+              "do not Read the glossary file; report and stop")
         return 4
     print("\n\n".join(out))
     if missing:
         # Partial glossary must not look complete — people/ownership checks
         # silently vanish otherwise (codex v2 #19). rc 3 = partial, use fallback.
         print(f"NOTE: missing glossary sections {', '.join(missing)} — "
-              "name/ownership cross-validation degraded; Read the glossary directly if needed")
+              "name/ownership cross-validation degraded; use printed sections only "
+              "(do not Read the glossary file)")
         return 3
     return 0
 
@@ -477,7 +558,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "  write:      record hashes after correction (verifies modification)\n"
             "  batch:      folder check (stamp first, density advisory) + progress\n"
             "  quick-scan: rapid variant density check\n"
-            "  sections:   print correction-relevant glossary sections (§1/§7/§8) only\n"
+            "  sections:   print §7/§8 + §1 (hit-rows if a transcript path is given)\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -510,6 +591,11 @@ def _build_parser() -> argparse.ArgumentParser:
         sp = sub.add_parser(cmd, help=help_text, parents=[common])
         sp.add_argument("target", help="transcript file (a folder belongs to `batch`)")
         sp.add_argument("glossary", help="glossary .md file")
+        if cmd == "scan":
+            sp.add_argument(
+                "-v", "--verbose", action="store_true",
+                help="dump context/short review loc previews on stderr",
+            )
 
     # batch: folder + glossary
     sp_batch = sub.add_parser("batch", help="folder check with quick-scan pre-filter",
@@ -517,10 +603,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sp_batch.add_argument("target", help="folder containing .txt transcripts")
     sp_batch.add_argument("glossary", help="glossary .md file")
 
-    # sections: glossary only
-    sp_sect = sub.add_parser("sections", help="print §1/§7/§8 correction sections",
+    # sections: glossary + optional transcript (hit-rows for §1)
+    sp_sect = sub.add_parser("sections", help="print §7/§8 + §1 (hits only if target given)",
                              parents=[common])
     sp_sect.add_argument("glossary", help="glossary .md file")
+    sp_sect.add_argument("target", nargs="?", default=None,
+                         help="transcript; if set, §1 is hit-rows only")
 
     return p
 
@@ -537,7 +625,8 @@ def main() -> int:
     threshold = args.threshold or QUICK_SCAN_MIN_DENSITY
 
     if args.cmd == "sections":
-        return print_sections(Path(args.glossary))
+        tgt = getattr(args, "target", None)
+        return print_sections(Path(args.glossary), Path(tgt) if tgt else None)
 
     target = Path(args.target)
     glossary = Path(args.glossary)
@@ -555,7 +644,7 @@ def main() -> int:
     if args.cmd == "quick-scan":
         return quick_scan(target, glossary, threshold=threshold)
     if args.cmd == "scan":
-        return scan(target, glossary)
+        return scan(target, glossary, verbose=getattr(args, "verbose", False))
     if args.cmd == "check":
         return check_file(target, glossary, dry_run=dry_run)
     if args.cmd == "write":

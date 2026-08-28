@@ -11,10 +11,11 @@ artifact done.
     verify   compare the read-back against what was sent (exit 4 = not synced)
     manual   blocking human checklist (orphan cleanup after a supersede)
     close    complete only when everything is verified (exit 7 = not yet)
-    fail / status / promote-check / gc
+    fail / status / promote-check / gc / share-check / render-share
 
 Exit codes: 0 ok · 2 usage/config · 3 source hash mismatch · 4 read-back
-mismatch · 5 lock held · 6 illegal transition · 7 completeness failed.
+mismatch · 5 lock held · 6 illegal transition · 7 completeness failed
+· 8 share blocked (bot DM canvas / unconfirmed Gmail draft).
 Design contract: 2026-07-27-mm-runtime-protocol-design.md
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ import difflib
 import json
 import os
 import pathlib
+import re
 import secrets
 import shutil
 import socket
@@ -33,6 +35,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mm_readback  # noqa: E402
 import mm_state as S  # noqa: E402
+import share_guard  # noqa: E402
 
 try:
     import yaml
@@ -331,6 +334,339 @@ def cmd_gate(a) -> int:
     return 0
 
 
+
+def enforce_share(a, cfg: dict) -> None:
+    """Fail-closed for canvas/gmail when config knows Slack ids (2026-08-26)."""
+    if a.artifact not in ("canvas", "gmail"):
+        return
+    channels = (cfg or {}).get("channels") or {}
+    slack_user = str(channels.get("slack_user_id") or "").strip()
+    bot_dm = str(channels.get("slack_bot_dm_id") or "").strip()
+    if a.artifact == "canvas" and not (slack_user or bot_dm):
+        return
+    dest = getattr(a, "dest", None) or ""
+    user_ids = getattr(a, "user_ids", None) or ""
+    confirmed = bool(getattr(a, "confirmed", False))
+    plan = {
+        "slack_user_id": slack_user,
+        "slack_bot_dm_id": bot_dm,
+        "canvas": None,
+        "gmail": None,
+    }
+    if a.artifact == "canvas":
+        plan["canvas"] = {
+            "attempted": True,
+            "canvas_id": a.id,
+            "destination": dest,
+            "user_ids": user_ids,
+            "user_asked_channel": bool(getattr(a, "user_asked_channel", False)),
+            "claim_success": False,
+        }
+    else:
+        plan["gmail"] = {
+            "attempted": True,
+            "draft_id": a.id,
+            "confirmed": confirmed,
+            "claim_inbox": False,
+            "eml_path": "",
+        }
+    ignore = {
+        share_guard.GMAIL_UNCONFIRMED,
+        share_guard.CANVAS_FALSE_SUCCESS,
+        share_guard.GMAIL_NO_ID_NO_EML,
+    }
+    viol = [x for x in share_guard.check_plan(plan) if x not in ignore]
+    if viol:
+        raise S.ShareBlocked(f"{a.artifact} share blocked: {', '.join(viol)}")
+
+
+def cmd_share_check(a) -> int:
+    cfg = load_config(a.config)
+    plan = share_guard.merge_config(share_guard.load_plan(a.plan), cfg)
+    viol = share_guard.check_plan(plan)
+    emit({"ok": not viol, "violations": viol},
+         "share-check PASS" if not viol else f"share-check BLOCKED: {', '.join(viol)}")
+    if viol:
+        raise S.ShareBlocked(", ".join(viol))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# render-share — mechanical canvas/gmail bodies from the snapshot (no MCP)
+# ---------------------------------------------------------------------------
+
+_HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_BULLET = re.compile(r"^\s*(?:[-*·]|\d+[.)])\s+")
+_UNMENTIONED = "금일 미언급"
+_DEFAULT_GREETING = "안녕하세요."
+_DEFAULT_CLOSING = "감사합니다."
+_CAT_LABEL = {
+    "daily": "Daily 이슈 회의록",
+    "regular": "정기 회의록",
+    "workshop": "워크샵 회의록",
+}
+
+
+def _flatten_gt(text: str) -> str:
+    while ">>" in text:
+        text = text.replace(">>", ">")
+    return text
+
+
+def _strip_unmentioned(text: str) -> str:
+    return "\n".join(
+        line for line in text.split("\n")
+        if not (_UNMENTIONED in line and _BULLET.match(line))
+    )
+
+
+def _split_fm(text: str) -> tuple[dict, str]:
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return {}, text
+    meta = {}
+    for line in lines[1:end]:
+        if ":" in line and not line.startswith((" ", "\t")):
+            key, val = line.split(":", 1)
+            meta[key.strip()] = val.strip().strip("'\"")
+    return meta, "\n".join(lines[end + 1:])
+
+
+def _blocks(body: str) -> list[tuple[int, str, str]]:
+    cur_level, cur_title, buf = 0, "", []
+    out: list[tuple[int, str, str]] = []
+    for line in body.split("\n"):
+        m = _HEADING.match(line)
+        if m:
+            out.append((cur_level, cur_title, "\n".join(buf)))
+            cur_level, cur_title, buf = len(m.group(1)), m.group(2).strip(), []
+        else:
+            buf.append(line)
+    out.append((cur_level, cur_title, "\n".join(buf)))
+    return out
+
+
+def _kind(level: int, title: str) -> str:
+    t = title.strip()
+    if re.match(r"^개요$", t):
+        return "overview"
+    if re.match(r"^핵심\s*논의$", t):
+        return "disc_banner"
+    if re.match(r"^\d+\.", t):
+        return "discussion"
+    if re.match(r"^Action Items$", t, re.I):
+        return "actions"
+    if t == "일정" or t.startswith("일정 "):
+        return "schedule"
+    if t.startswith("이전 회의"):
+        return "overview"
+    if level == 1:
+        return "title"
+    return "keep"
+
+
+def _join(parts: list[str]) -> str:
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(parts)).strip()
+
+
+def _bucket(blocks: list[tuple[int, str, str]]) -> tuple[list[str], list[str], list[str], list[str], str]:
+    overview, discussion, actions, schedule = [], [], [], []
+    title = ""
+    bucket = "overview"
+    dests = {
+        "overview": overview, "discussion": discussion,
+        "actions": actions, "schedule": schedule,
+    }
+    for level, heading, content in blocks:
+        if level == 0:
+            if content.strip():
+                overview.append(content)
+            continue
+        kind = _kind(level, heading)
+        if kind == "title":
+            title = heading
+            bucket = "overview"
+            if content.strip():
+                overview.append(content)
+            continue
+        if kind == "overview":
+            bucket = "overview"
+            if heading != "개요":
+                overview.append(f"{'#' * min(level, 2)} {heading}")
+            if content.strip():
+                overview.append(content)
+            continue
+        if kind == "disc_banner":
+            bucket = "discussion"
+            if content.strip():
+                discussion.append(content)
+            continue
+        if kind == "discussion":
+            bucket = "discussion"
+            discussion.append(f"## {heading}")
+            if content.strip():
+                discussion.append(content)
+            continue
+        if kind == "actions":
+            bucket = "actions"
+            if content.strip():
+                actions.append(content)
+            continue
+        if kind == "schedule":
+            bucket = "schedule"
+            if content.strip():
+                schedule.append(content)
+            continue
+        dests[bucket].append(f"{'#' * level} {heading}")
+        if content.strip():
+            dests[bucket].append(content)
+    return overview, discussion, actions, schedule, title
+
+
+def _section(heading: str, body: str) -> str:
+    body = body.strip()
+    return f"{heading}\n{body}" if body else heading
+
+
+def render_canvas(snap: str, category: str) -> tuple[str, str]:
+    meta, body = _split_fm(snap)
+    body = _strip_unmentioned(_flatten_gt(body.replace("\r\n", "\n").replace("\r", "\n")))
+    overview, discussion, actions, schedule, title = _bucket(_blocks(body))
+    chunks = [
+        _section("# 개요", _join(overview)),
+        _section("# 논의 내용", _join(discussion)),
+        _section("# Action Items", _join(actions)),
+    ]
+    sched = _join(schedule)
+    if sched:
+        chunks.append(_section("# 일정", sched))
+    md = _md_date(meta, title)
+    label = _CAT_LABEL.get(category, f"{category} 회의록")
+    canvas_title = title or (f"{label} ({md})" if md else label)
+    return "\n\n".join(chunks).strip() + "\n", canvas_title
+
+
+def _md_date(meta: dict, title: str) -> str:
+    raw = (meta.get("date") or "").strip()
+    m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", raw)
+    if m:
+        return f"{int(m.group(2))}/{int(m.group(3))}"
+    m = re.search(r"\((\d{1,2})/(\d{1,2})\)", title or "")
+    if m:
+        return f"{int(m.group(1))}/{int(m.group(2))}"
+    return ""
+
+
+def _csv(val) -> str:
+    if not val:
+        return ""
+    if isinstance(val, list):
+        return ", ".join(str(x).strip() for x in val if str(x).strip())
+    return str(val).strip()
+
+
+def _fill(template: str, tokens: dict[str, str]) -> str:
+    out = template
+    for key, val in tokens.items():
+        out = out.replace("{{" + key + "}}", val)
+    return out
+
+
+def _envelope(cfg: dict, category: str) -> dict:
+    row = (cfg.get("categories") or {}).get(category) or {}
+    env = row.get("gmail_envelope") or cfg.get("gmail_envelope") or {}
+    return env if isinstance(env, dict) else {}
+
+
+def _subject(env: dict, cfg: dict, category: str, md: str, tokens: dict[str, str]) -> str:
+    raw = env.get("subject") or env.get("subject_pattern") or ""
+    if raw:
+        filled = _fill(str(raw), tokens)
+        if md:
+            filled = filled.replace("(M/D)", f"({md})").replace("M/D", md)
+        else:
+            filled = filled.replace(" (M/D)", "").replace("(M/D)", "").replace("M/D", "")
+        return filled.strip()
+    label = _CAT_LABEL.get(category, f"{category} 회의록")
+    name = str((cfg.get("project") or {}).get("name") or "").strip()
+    core = f"[{name}] {label}" if name else label
+    return f"{core} ({md})" if md else core
+
+
+def _gmail_headings(text: str) -> str:
+    out = []
+    for line in text.split("\n"):
+        m = _HEADING.match(line)
+        if not m:
+            out.append(line)
+            continue
+        level, title = len(m.group(1)), m.group(2).strip()
+        out.append(f"[{title}]" if level >= 3 else f"■ {title}")
+    return "\n".join(out)
+
+
+def render_gmail(canvas: str, snap: str, cfg: dict, category: str,
+                 canvas_title: str) -> tuple[str, str]:
+    env = _envelope(cfg, category)
+    meta, _ = _split_fm(snap)
+    md = _md_date(meta, canvas_title)
+    ident = cfg.get("identity") or {}
+    proj = cfg.get("project") or {}
+    tokens = {
+        "project_name": str(proj.get("name") or ""),
+        "me": str(ident.get("me") or ""),
+        "org": str(ident.get("org") or ""),
+    }
+    subject = _subject(env, cfg, category, md, tokens)
+    greeting = _fill(str(env.get("greeting") or _DEFAULT_GREETING), tokens).strip()
+    closing = _fill(str(env.get("closing") or _DEFAULT_CLOSING), tokens).strip()
+    header = [f"subject: {subject}"]
+    to, cc = _csv(env.get("to")), _csv(env.get("cc"))
+    if to:
+        header.append(f"to: {to}")
+    if cc:
+        header.append(f"cc: {cc}")
+    body = "\n".join(header + ["", greeting, "", _gmail_headings(canvas).strip(), "", closing])
+    return body.strip() + "\n", subject
+
+
+def cmd_render_share(a) -> int:
+    """Write rendered/canvas.md + rendered/gmail.md from the run snapshot only."""
+    cfg = load_config(a.config)
+    ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
+    _doc_id, run_id, manifest = ws.load_run()
+    if manifest["status"] not in ("approved", "publishing"):
+        raise S.ConfigError(
+            f"{run_id} is {manifest['status']} — render-share needs approved/publishing")
+    snapshot = ws.run_dir(run_id) / "source.md"
+    if not snapshot.exists():
+        raise S.ConfigError(f"{run_id}: no snapshot (source.md)")
+    enforce_hash(ws, manifest, cfg, "render_share_blocked")
+    snap_text = snapshot.read_text(encoding="utf-8")
+    if S.source_hash(snap_text) != manifest["source_sha256"]:
+        emit({"error": "source_hash_mismatch", "approved": manifest["source_sha256"],
+              "current": S.source_hash(snap_text)},
+             "BLOCKING: snapshot does not match approved hash")
+        raise S.HashMismatch("snapshot does not match approved hash")
+    category = manifest.get("category") or "daily"
+    canvas_body, canvas_title = render_canvas(snap_text, category)
+    gmail_body, gmail_subject = render_gmail(
+        canvas_body, snap_text, cfg, category, canvas_title)
+    out_dir = ws.run_dir(run_id) / "rendered"
+    canvas_path = out_dir / "canvas.md"
+    gmail_path = out_dir / "gmail.md"
+    S._atomic_write(canvas_path, canvas_body)
+    S._atomic_write(gmail_path, gmail_body)
+    emit({"canvas_path": str(canvas_path), "gmail_path": str(gmail_path),
+          "canvas_title": canvas_title, "gmail_subject": gmail_subject,
+          "snapshot_path": str(snapshot)},
+         f"rendered share bodies from {snapshot.name}")
+    return 0
+
+
 def cmd_record(a) -> int:
     cfg = load_config(a.config)
     ws = Workspace(a.doc, runtime_opt(cfg, "state_dir", DEFAULT_STATE_DIR))
@@ -344,6 +680,7 @@ def cmd_record(a) -> int:
         raise S.IllegalTransition(
             f"{a.artifact}: existing id {art['external_id']} — read it back; do not recreate")
     enforce_hash(ws, manifest, cfg, "record_blocked")
+    enforce_share(a, cfg)
     S.assert_artifact_transition(art["status"], "created")
 
     body = pathlib.Path(a.body_file).read_text(encoding="utf-8")
@@ -638,6 +975,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--id", required=True)
     r.add_argument("--body-file", required=True)
     r.add_argument("--url")
+    r.add_argument("--dest", help="canvas destination (user id or channel id)")
+    r.add_argument("--user-ids", help="comma-separated Slack user ids the canvas is shared with")
+    r.add_argument("--confirmed", action="store_true",
+                   help="gmail: get_draft confirmed this id")
+    r.add_argument("--user-asked-channel", action="store_true")
     r.set_defaults(func=cmd_record)
 
     v = common(sub.add_parser("verify"))
@@ -676,6 +1018,14 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--days", type=int)
     gc.add_argument("--dry-run", action="store_true")
     gc.set_defaults(func=cmd_gc)
+
+    sc = sub.add_parser("share-check")
+    sc.add_argument("--plan", required=True)
+    sc.add_argument("--config")
+    sc.set_defaults(func=cmd_share_check)
+
+    rs = common(sub.add_parser("render-share"), lease=False)
+    rs.set_defaults(func=cmd_render_share)
     return p
 
 
@@ -690,7 +1040,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except S.MmError as exc:
-        if not isinstance(exc, (S.HashMismatch, S.ReadbackMismatch, S.IncompleteRun)):
+        if not isinstance(exc, (S.HashMismatch, S.ReadbackMismatch,
+                                S.IncompleteRun, S.ShareBlocked)):
             emit({"error": type(exc).__name__, "detail": str(exc)}, f"ERROR: {exc}")
         return exc.exit_code
 

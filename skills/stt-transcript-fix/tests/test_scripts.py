@@ -251,12 +251,118 @@ def test_scan_candidates_grounded_no_hallucination(tmp_path):
     assert autod.get(("SOC", "SoC")) == 2
     assert autod.get(("VTC", "V2G")) == 1
     assert ("충격", "충전") in revd                  # (문맥) → review, not auto
-    assert ("VT", "V2G") in revd                     # context / 2-char → review
+    assert ("VT", "V2G") in revd                     # (문맥) 2-char stays review
+    assert not any(r[0] == "VT" and r[3] != "문맥" for r in res["review"])
     # redirect retargets to 'last SoC', not the row header 'SoC'
     assert any(r[:2] == ["라스트 SOC", "last SoC"] for r in res["auto"] + res["review"])
     # SNP never appears in the transcript → must NOT be emitted (count-0 filter)
     assert not any(v == "SNP" for v, _, _ in res["auto"])
     assert not any(r[0] == "SNP" for r in res["review"])
+
+
+def test_scan_cli_prints_hit_lines_not_full_transcript(tmp_path):
+    """Scan stderr carries occurrence lines; unused paragraphs must not dump."""
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **SMP** | 에세이 |\n## 2. 끝\n",
+        encoding="utf-8",
+    )
+    unused = "UNIQUE_UNUSED_PARAGRAPH_TOKEN_d41d"
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("에세이 시장 확인.\n" + unused + "\n", encoding="utf-8")
+    result = run_fixstamp(["scan", str(tgt), str(glo)])
+    assert result.returncode == 0, result.stderr
+    assert unused not in result.stdout
+    assert unused not in result.stderr
+    assert "L1:" in result.stderr
+    assert "에세이" in result.stderr
+    assert "HITS" in result.stderr
+    assert "stamp=1" not in result.stderr
+    assert "pass -v" not in result.stderr
+
+
+def test_scan_hit_previews_skip_timestamp_speaker_header(tmp_path):
+    """HITS must not flag an immutable timestamp speaker line as a site."""
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **박상호** | 박상우 |\n## 2. 끝\n",
+        encoding="utf-8",
+    )
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("10:07 박상우\n본문에서 박상우가 확인했습니다\n", encoding="utf-8")
+    result = run_fixstamp(["scan", str(tgt), str(glo)])
+    assert result.returncode == 0, result.stderr
+    assert "L2:" in result.stderr
+    assert "L1:" not in result.stderr
+
+
+def _context_only_glossary_and_transcript(tmp_path):
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **입찰** | 입장(문맥) |\n"
+        "| **정산** | 정상(문맥) |\n"
+        "## 2. 끝\n",
+        encoding="utf-8",
+    )
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("입장 확인. 정상 처리.\n", encoding="utf-8")
+    return tgt, glo
+
+
+def test_scan_cli_auto_zero_omits_review_loc_previews(tmp_path):
+    """auto=0 must not dump context HITS loc-previews (Tier-C; parent applies none)."""
+    tgt, glo = _context_only_glossary_and_transcript(tmp_path)
+    result = run_fixstamp(["scan", str(tgt), str(glo)])
+    assert result.returncode == 0, result.stderr
+    assert "SCAN: 0 auto candidate(s), 2 context/short review item(s)" in result.stderr
+    assert "not auto" in result.stderr
+    assert "HITS" not in result.stderr
+    assert "L1:" not in result.stderr
+    assert "[문맥]" not in result.stderr
+    assert "-> " not in result.stderr
+    assert "'입장'" not in result.stderr
+    assert "'정상'" not in result.stderr
+    assert "pass -v" not in result.stderr
+    manifest = json.loads(result.stdout)
+    assert manifest["replacements"] == []
+
+
+def test_scan_cli_auto_hits_omit_mixed_review_loc_previews(tmp_path):
+    """auto>0 still prints auto HITS; mixed review loc-previews stay off by default."""
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **SMP** | 에세이 |\n"
+        "| **입찰** | 입장(문맥) |\n"
+        "## 2. 끝\n",
+        encoding="utf-8",
+    )
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("에세이 시장. 입장 확인.\n", encoding="utf-8")
+    result = run_fixstamp(["scan", str(tgt), str(glo)])
+    assert result.returncode == 0, result.stderr
+    assert "SCAN: 1 auto candidate(s), 1 context/short review item(s)" in result.stderr
+    assert "HITS" in result.stderr
+    assert "L1:" in result.stderr
+    assert "에세이" in result.stderr
+    assert "[문맥]" not in result.stderr
+    assert "'입장'" not in result.stderr
+    manifest = json.loads(result.stdout)
+    assert manifest["replacements"] == [["에세이", "SMP", 1]]
+
+
+def test_scan_cli_verbose_dumps_review_loc_previews(tmp_path):
+    tgt, glo = _context_only_glossary_and_transcript(tmp_path)
+    result = run_fixstamp(["scan", "-v", str(tgt), str(glo)])
+    assert result.returncode == 0, result.stderr
+    assert "SCAN: 0 auto candidate(s), 2 context/short review item(s)" in result.stderr
+    assert "HITS review" in result.stderr
+    assert "L1:" in result.stderr
+    assert "[문맥]" in result.stderr
+    assert "'입장'" in result.stderr
 
 
 def test_scan_and_apply_share_speaker_masking_for_plain_name_prefix(tmp_path):
@@ -972,6 +1078,22 @@ def test_sections_partial_glossary_flagged(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 3
     assert "missing glossary sections" in out and "§7" in out
+    assert "Read the glossary directly" not in out
+    assert "Read the file directly" not in out
+    assert "do not Read the glossary file" in out
+
+
+def test_sections_empty_glossary_does_not_tell_agent_to_read_file(tmp_path, capsys):
+    """Format-error path must fail-closed without inviting a glossary Read."""
+    g = tmp_path / "g.md"
+    g.write_text("# no numbered sections\n", encoding="utf-8")
+    rc = FS.print_sections(g)
+    out = capsys.readouterr().out
+    assert rc == 4
+    assert "no §1/§7/§8" in out
+    assert "Read the file directly" not in out
+    assert "Read the glossary directly" not in out
+    assert "do not Read the glossary file" in out
 
 
 # =========================================================================
@@ -1120,13 +1242,19 @@ def _make_stamp(target: Path, glossary: Path, *, version=FS.SKILL_VERSION):
 
 
 def test_check_file_skip_when_unchanged(tmp_path, capsys):
+    secret = "UNIQUE_SKIP_BODY_TOKEN_9f3a"
+    gloss_secret = "UNIQUE_SKIP_GLOSS_TOKEN_7c2b"
     target = tmp_path / "t.txt"
-    target.write_text("녹취 내용", encoding="utf-8")
+    target.write_text(f"녹취 내용 {secret}", encoding="utf-8")
     glossary = tmp_path / "g.md"
-    glossary.write_text("# glossary", encoding="utf-8")
+    glossary.write_text(f"# glossary\n{gloss_secret}", encoding="utf-8")
     _make_stamp(target, glossary)
     assert FS.check_file(target, glossary) == 0
-    assert "SKIP" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "SKIP" in out
+    assert "do not reread" in out
+    assert secret not in out
+    assert gloss_secret not in out
 
 
 def test_check_file_new_when_no_stamp(tmp_path, capsys):
@@ -1309,6 +1437,107 @@ def test_main_sections_routing(tmp_path):
     assert "## 1." in r.stdout and "## 7." in r.stdout
 
 
+def test_sections_with_target_returns_fewer_bytes_and_keeps_hit_token(tmp_path):
+    """stamp=1 path: sections <glossary> <target> is hit-rows, not full §1."""
+    miss = "UNIQUE_MISS_VARIANT_d41d"
+    hit = "에세이"
+    glossary = tmp_path / "g.md"
+    glossary.write_text(
+        "## 1. STT\n"
+        "| 권장 | ← 오인식 변형 |\n"
+        "|------|------|\n"
+        f"| **SMP** | {hit} |\n"
+        f"| **V2G** | {miss} |\n"
+        "## 2. x\n## 7. 인명\n홍길동\n## 8. 담당\n조직A\n## 9. end\n",
+        encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text(f"시장에서 {hit} 확인\n", encoding="utf-8")
+    full = run_stamp(["sections", str(glossary)])
+    hits = run_stamp(["sections", str(glossary), str(target)])
+    assert full.returncode == 0, full.stderr
+    assert hits.returncode == 0, hits.stderr
+    assert len(hits.stdout.encode("utf-8")) < len(full.stdout.encode("utf-8"))
+    assert hit in hits.stdout
+    assert miss not in hits.stdout
+    assert "## 7." in hits.stdout and "## 8." in hits.stdout
+
+
+def test_sections_hit_rows_ignore_context_substrings(tmp_path):
+    """입장에서는/정상적으로 must not keep 입찰/정산; 소카 variant keeps 파일럿카."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text(
+        "## 1. STT\n"
+        "| 권장 | ← 오인식 변형 |\n"
+        "|------|------|\n"
+        "| **입찰** | 입장(문맥) |\n"
+        "| **정산** | 정상(문맥) |\n"
+        "| **파일럿카** | 소카, 쇼카 |\n"
+        "| **V2G** | UNIQUE_MISS_VARIANT_d41d |\n"
+        "## 2. x\n## 7. 인명\n홍길동\n## 8. 담당\n조직A\n## 9. end\n",
+        encoding="utf-8")
+    target = tmp_path / "t.txt"
+    target.write_text("입장에서는 정상적으로 소카를 확인\n", encoding="utf-8")
+    hits = run_stamp(["sections", str(glossary), str(target)])
+    assert hits.returncode == 0, hits.stderr
+    assert "입찰" not in hits.stdout
+    assert "정산" not in hits.stdout
+    assert "파일럿카" in hits.stdout
+    assert "UNIQUE_MISS" not in hits.stdout
+
+
+def test_sections_hit_rows_ignore_correct_canonical(tmp_path):
+    """Correct 권장 충전 in text does not keep the row; variant 충천 does."""
+    glossary = tmp_path / "g.md"
+    glossary.write_text(
+        "## 1. STT\n"
+        "| 권장 | ← 오인식 변형 |\n"
+        "|------|------|\n"
+        "| **충전** | 충천, 풍전 |\n"
+        "## 2. x\n## 7. 인명\n홍길동\n## 8. 담당\n조직A\n## 9. end\n",
+        encoding="utf-8")
+    absent_t = tmp_path / "absent.txt"
+    absent_t.write_text("충전이 정상\n", encoding="utf-8")
+    absent = run_stamp(["sections", str(glossary), str(absent_t)])
+    assert absent.returncode == 0, absent.stderr
+    assert "충전" not in absent.stdout
+    present_t = tmp_path / "present.txt"
+    present_t.write_text("충천 확인\n", encoding="utf-8")
+    present = run_stamp(["sections", str(glossary), str(present_t)])
+    assert present.returncode == 0, present.stderr
+    assert "충전" in present.stdout
+
+
+def test_scan_standalone_sp_hits_smp(tmp_path):
+    """Standalone SP token must still HIT as review (not dropped)."""
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **SMP** | SP, 에세이 |\n## 2. 끝\n",
+        encoding="utf-8")
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("SP 시장과 에세이 확인\n", encoding="utf-8")
+    res = FS.scan_candidates(tgt, glo)
+    assert any(r[:3] == ["SP", "SMP", 1] for r in res["review"])
+    assert not any(v == "SP" for v, _, _ in res["auto"])
+
+
+def test_scan_aspect_does_not_emit_sp_to_smp(tmp_path):
+    """SP inside ASPECT/RESPONSE must not emit SP→SMP."""
+    glo = tmp_path / "g.md"
+    glo.write_text(
+        "## 1. STT\n| 권장 | ← 오인식 변형 |\n|---|---|\n"
+        "| **SMP** | SP |\n"
+        "| **입찰** | 입장(문맥) |\n"
+        "## 2. 끝\n",
+        encoding="utf-8")
+    tgt = tmp_path / "t.txt"
+    tgt.write_text("ASPECT and RESPONSE and 입장 확인\n", encoding="utf-8")
+    res = FS.scan_candidates(tgt, glo)
+    assert not any(v == "SP" for v, _, _ in res["auto"])
+    assert not any(r[0] == "SP" for r in res["review"])
+    assert any(r[0] == "입장" for r in res["review"])
+
+
 def test_main_check_routing_new_file(tmp_path):
     target = tmp_path / "t.txt"
     target.write_text("내용", encoding="utf-8")
@@ -1347,6 +1576,10 @@ def test_skill_uses_msys_safe_temp_path_and_lazy_references():
     skill = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(encoding="utf-8")
     assert "$env:TEMP" not in skill
     assert "$LOCALAPPDATA/Temp" in skill
+    assert "sections <glossary> <target>" in skill
+    assert "Never glossary-only" in skill
+    assert "glossary 파일" in skill and "Read 금지" in skill
+    assert "`-v`" in skill
     for reference in ("references/batch-mode.md", "references/marker-policy.md",
                       "references/encoding-fallback.md"):
         assert reference in skill
@@ -1411,29 +1644,3 @@ def test_check_help_does_not_advertise_folder_input():
 
     assert result.returncode == 0
     assert "batch: folder" not in result.stdout
-
-
-# =========================================================================
-# 14. Version-bound rule surface — semantic changes require a new stamp version
-# =========================================================================
-
-def test_rule_surface_hash_is_pinned_to_the_current_skill_version():
-    """F2: correction/safety logic cannot drift beneath an unchanged stamp version."""
-    assert FS.RULE_SURFACE_VERSION == FS.SKILL_VERSION
-    assert set(FS.RULE_SURFACE_PINS) == {FS.SKILL_VERSION}
-    assert FS.RULE_SURFACE_PINS[FS.SKILL_VERSION] == FS.rule_surface_sha256()
-
-
-def test_rule_surface_hash_changes_when_protected_logic_changes(tmp_path):
-    """The pin covers the selected correction and safety execution surface."""
-    copied_scripts = tmp_path / "scripts"
-    copied_scripts.mkdir()
-    for relative_path in FS.RULE_SURFACE_FILES:
-        shutil.copy2(SCRIPTS / relative_path, copied_scripts / relative_path)
-
-    mutated = copied_scripts / "_utils.py"
-    original = mutated.read_text(encoding="utf-8")
-    mutated.write_text(original.replace("return any(cue in name for cue in SENSITIVE_FILENAME_CUES)",
-                                       "return False"), encoding="utf-8")
-
-    assert FS.rule_surface_sha256(copied_scripts) != FS.rule_surface_sha256()

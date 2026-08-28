@@ -5,6 +5,39 @@
 
 ---
 
+## [2.0.0] — 2026-08-28
+
+**요약**
+1. 회의록 첫 파일은 Hemingway가 바로 씀. 엔진이 초안을 쓰고 다시 고치는 단계는 없음
+2. 시계열순 논의 내용 초안 작성용으로 데일리·정기·리포트는 짧은 `conventions-draft.md`만 읽음
+3. STT 신규 파일은 녹취·glossary 전문을 열지 않음. 후보는 `sections` 출력만 사용
+
+### 추가
+- 시계열순 논의 내용 초안 작성용 `conventions-draft.md` (축·워크샵·발행 장 제외). Hemingway는 이 파일만 Read
+- STT `stamp=1`: `fixstamp.py sections <glossary> <target>` stdout이 후보. 녹취 Grep·glossary 파일 Read 금지
+- 테스트: 초안이 Hemingway-first인지, stamp=1 Read/Grep 초대가 남으면 fail
+
+### 변경
+- **초안 계약** — 전 카테고리 첫 작업 MD = Hemingway 본문. 부모 Task는 직전 회의 `이전 회의 연계`+`Action Items` 발췌와 경로만. 안건 개요를 미리 짜서 넘기지 않음. `.hemingway.md` 형제 파일 없음
+- **시계열순 vs 축** — chronological → `conventions-draft.md`만. axis(워크샵·외부·내부) → `conventions.md` 전문
+- **STT 신규** — 녹취·glossary Read 금지, scan JSON/`-v` 세션 붙여넣기 금지. `scan` → `$manifest` → `--json` dry-run → `fix_template` → stamp
+
+### 개선
+- glossary `sections`가 권장 표기가 원문에 맞게 나온 것만으로 행을 남기던 문제
+- 짧은 문맥 토큰 부분문자열로 문맥 행이 남던 문제
+- `scan auto=0`이 Tier-C 위치 미리보기를 덤프하던 문제
+
+### 설치 · 업데이트
+- 재설치 금지. 엔진만 교체:
+
+  ```bash
+  python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
+  ```
+
+STT도 같이 쓰는 경우 같은 저장소의 `stt-transcript-fix`가 함께 교체됨.
+
+---
+
 ## [1.1.2] — 2026-08-27
 
 **요약** — 공유 전에 목적지를 확인하고, 캔버스는 한 번만 만든 뒤 사용자가 열 수 있을 때 URL을 내고, 그다음 볼트에 저장한다

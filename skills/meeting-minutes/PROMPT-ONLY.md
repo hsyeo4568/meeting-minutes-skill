@@ -25,6 +25,7 @@
 
 # Meeting Minutes Writing Principles (generic engine)
 
+> When SKILL/profile is Hemingway-first, this file is not a parent compose pass (Hemingway uses conventions.md).
 > Methodology applied when composing meeting minutes body content. All proper nouns, paths, and concrete values use placeholders or neutral examples.
 > Style rules branch on a locale condition (`korean-gaejosik`) — culture-specific writing conventions are not imposed as universal rules.
 > **This file covers only universal writing hygiene, independent of meeting type.** Meeting *form* (section order, categories, Action grouping, titles) belongs to profile `structure.md` (see §Section Order below). §3/§5/§6/§9 lean on *operational-meeting examples* — if they don't fit the meeting type, follow structure.md.
@@ -33,7 +34,7 @@ Sections: §1 context-link · §2 locale style · §3 segments · §4 assignee a
 
 ## 1. Context Linking (context-link)
 
-- Before drafting, read the immediately preceding meeting in full + the previous few meetings (profile-configurable count cap, default 3) in link/Action sections only. **Read scope and depth can be narrowed by the profile (profile takes precedence).** Use a per-category count cap, not a calendar window — daily cadence makes a "1–2 weeks" window blow up to ~10 minutes. **Unresolved-issue override:** an open issue older than the cap is still tracked back to the meeting where it opened (carry invariant > count cap) — never drop a live follow-up just because it fell outside the window.
+- Before drafting, read the immediately preceding meeting in full + the previous few meetings (profile-configurable count cap, default 3) in link/Action sections only. **Read scope and depth can be narrowed by the profile (profile takes precedence).** Daily immediately-previous = `## 이전 회의 연계` + `## Action Items` only — not the full previous vault note (profile/SKILL win over this default and over pipeline phase 3). Use a per-category count cap, not a calendar window — daily cadence makes a "1–2 weeks" window blow up to ~10 minutes. **Unresolved-issue override:** an open issue older than the cap is still tracked back to the meeting where it opened (carry invariant > count cap) — never drop a live follow-up just because it fell outside the window.
 - For each agenda item, explicitly state which prior meeting's unresolved issue it follows up on.
 - Add a `## Prior Meeting (date) Context` section at the top, or per-item quotation blocks (`> Prior meeting #N follow-up`).
 - Items that are genuinely new — not follow-ups — must be explicitly labeled "신규" (new) so readers can track continuity.

@@ -44,10 +44,12 @@ Runs after the manifest, before drafting. Goal: the deck/sheet's **meaning** ent
 
 ## 3. Context-link + draft body
 
-- Read the immediately preceding meeting in full + the previous `config.categories.<cat>.context_lookback` meetings (default 3) in link/Action sections only → consolidate the linked context for ongoing agenda items. Count cap, not a calendar window (daily cadence blows a "1–2 weeks" window up to ~10 minutes). An unresolved issue older than the cap is still tracked back to where it opened (carry invariant > cap).
+Parent lookback/materials only. Hemingway-first for **all categories**; parent does not outline the body into Task `hemingway`. Do **not** write a full engine minutes then a sibling `.hemingway.md`. First work-folder MD = Hemingway voice (Task `hemingway`, Write once); fallback = that same single file.
+
+- Daily (and when SKILL/profile says so): immediately-previous = `## 이전 회의 연계` + `## Action Items` only — not the full previous vault note. Then the previous `config.categories.<cat>.context_lookback` meetings (default 3) in link/Action sections only → consolidate the linked context for ongoing agenda items. Count cap, not a calendar window (daily cadence blows a "1–2 weeks" window up to ~10 minutes). An unresolved issue older than the cap is still tracked back to where it opened (carry invariant > cap).
   - **Do not silently skip when not found** — if a file is missing, the path is wrong, or the index is stale, explicitly output `직전 회의록 미탐지 — 수동 확인 필요` as a flag in the draft's context-link section (do not leave it as an empty section). If this is the first meeting, write "신규(직전 회의 없음)".
 - Link each agenda item back to its source meeting → track "last week X → this week Y".
-- Apply writing-principles.md (bullet style, arrows, segments, assignees, real data).
+- Apply writing-principles.md **only if Hemingway is unavailable** (parent fallback, same single file) — not after Task `hemingway`.
 - Cross-check identifiers (people, equipment, customers, etc.) against the source-of-truth sheet. If no sheet is available, leave the text as-is and flag it.
 - **Inline comment markers** (post-hoc annotations the user left in the transcript): promote to the relevant section per the profile's routing rules. Marker syntax and keyword mapping are **the profile's responsibility** (engine purity — no hardcoding specific syntax in the engine). Unclassified markers must be surfaced in the draft (no silent drop); do not include raw markers in external artifacts.
 

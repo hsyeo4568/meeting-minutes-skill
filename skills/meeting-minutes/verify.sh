@@ -55,5 +55,15 @@ else
   echo "  SKIP — python not on PATH (gate not enforced)"
 fi
 
+echo "== Gate #5: share-guard wired =="
+if [ ! -f scripts/share_guard.py ]; then echo "  FAIL missing scripts/share_guard.py"; fail=1; fi
+for f in SKILL.md references/engine/tooling.md references/engine/RUNTIME-PROTOCOL.md; do
+  if grep -qE 'share-check' "$f" && grep -qE 'slack_bot_dm_id' "$f"; then
+    echo "  OK $f"
+  else
+    echo "  FAIL $f missing share-check or slack_bot_dm_id rule"; fail=1
+  fi
+done
+
 echo "== verify.sh: $([ $fail -eq 0 ] && echo PASS || echo FAIL) =="
 exit $fail

@@ -39,3 +39,22 @@ def test_boot_does_not_always_load_engine_refs_or_vault():
     assert "Do not Read writing-principles" in boot
     assert "Do **not** reread the vault" in SKILL or "not reread the vault" in SKILL
     assert "current phase heading" in SKILL
+
+
+def test_after_approve_follow_section_4():
+    assert "do **not** open `pipeline.md`" in SKILL
+    assert "Follow §4" in SKILL
+    assert "never `user_ids`-only" in SKILL
+    share = SKILL.split("## 4.")[1].split("## 5.")[0]
+    assert "read_canvas" in share
+    assert "openable" in share
+    assert "권한 없음" in share
+    assert "post-create check = `canvas_id` only" not in share
+
+
+def test_draft_is_hemingway_first_not_engine_then_rewrite():
+    draft = SKILL.split("## 1.")[1].split("## 2.")[0]
+    assert "do **not** write a full engine minutes then rewrite" in draft
+    assert "Hemingway-first" in SKILL or "Hemingway first" in SKILL or "Hemingway writes the only body" in draft
+    assert "No required sibling .hemingway.md" in draft
+    assert "conventions-draft.md" in draft

@@ -92,6 +92,11 @@ class IncompleteRun(MmError):
     exit_code = 7
 
 
+class ShareBlocked(MmError):
+    """Canvas dest is the bot DM, or Gmail claimed without a confirmed draft id."""
+    exit_code = 8
+
+
 # ---------------------------------------------------------------------------
 # hash domain
 # ---------------------------------------------------------------------------
