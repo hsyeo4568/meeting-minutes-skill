@@ -5,7 +5,26 @@
 
 ---
 
-## [2.0.0] — 2026-08-28
+## [2.0.1] — 2026-08-28
+
+**요약**
+1. 공개 엔진은 전용 작성 서브에이전트를 전제하지 않음. 세션 에이전트가 profile 표기 규칙 + writing-principles로 파일 하나 작성
+2. 시계열은 `conventions-draft.md`가 있으면 그것만, 없으면 `conventions.md`
+
+### 변경
+- **초안 계약(공개)** — `SKILL.md` §1이 named writer Task를 호출하지 않음. 초안 후 재작성·형제 재작성 파일 없음
+- README·릴리즈 노트에서 프라이빗 로스터 작성기 언급 제거. 팀원 Claude Code만으로 같은 경로
+
+### 설치 · 업데이트
+- 재설치 금지. 엔진만 교체:
+
+  ```bash
+  python skills/meeting-minutes/scripts/update_install.py --target ~/.claude/skills/meeting-minutes --apply
+  ```
+
+STT는 `update_install.py`가 건드리지 않음. 같은 clone에서 `skills/stt-transcript-fix` 폴더를 덮어쓸 것.
+
+---
 
 **요약**
 1. 작업 폴더 첫 회의록 = 파일 하나. 세션 에이전트가 profile 표기 규칙 + writing-principles로 1회 작성. 초안 후 재작성 단계 없음. 형제 재작성 파일 없음

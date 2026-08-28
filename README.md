@@ -211,6 +211,6 @@ sync-public.py            # 메인테이너 전용. 로컬 작업본을 이 저�
 
 - 사내 세미나 공유용
 - 이슈·개선 제안 → GitHub Issues
-- 현재 배포 v2.0.0 (2026-08-28)
+- 현재 배포 v2.0.1 (2026-08-28)
 - 변경 내역 [`CHANGELOG.md`](CHANGELOG.md)
-- 태그 https://github.com/hsyeo4568/meeting-minutes-skill/releases/tag/v2.0.0
+- 태그 https://github.com/hsyeo4568/meeting-minutes-skill/releases/tag/v2.0.1

@@ -58,6 +58,7 @@ def test_draft_is_one_file_not_engine_then_rewrite():
     assert "Do **not** Task a named writer subagent" in draft
     assert "One file only" in draft
     assert "conventions-draft.md" in draft
+    assert "if present, else" in draft
     assert "writing-principles.md" in draft
     assert "Task `hemingway`" not in SKILL
     assert "Hemingway-first" not in SKILL
